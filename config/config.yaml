@@ -1,0 +1,13 @@
+control:
+  rate: 10
+  action_type: "end_effector" # end_effector (x,y,z,r,p,y), angle_vector (seq of joint angle)
+  # control_joint: []
+  # # conrol_type: collector
+
+rosbag:
+  topic_list:
+    [
+      "/joint_states",
+      "/kinect_head/rgb/image_rect_color/compressed",
+      "/pr2_imitation/robot_action",
+    ]
