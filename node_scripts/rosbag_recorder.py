@@ -7,19 +7,22 @@ import time
 import signal
 import os
 
+from attrdict import AttrDict
 import rospy
 import rospkg
 from std_srvs.srv import Trigger, TriggerResponse
 from sound_play.libsoundplay import SoundClient
 
 
+from eus_imitation.utils.rosbag_utils import RosbagUtils
+
+
 class RosbagRecorderNode(object):
     def __init__(self):
-        rospack = rospkg.RosPack()
-        package_path = rospack.get_path("eus_imitation")
+        package_path = rospkg.RosPack().get_path("eus_imitation")
         try:
             with open("{}/config/config.yaml".format(package_path)) as f:
-                self.config = yaml.safe_load(f)
+                self.config = AttrDict(yaml.safe_load(f))
         except:
             raise FileNotFoundError("config.yaml not found")
 
@@ -33,7 +36,7 @@ class RosbagRecorderNode(object):
         except OSError:
             print("Error: Failed to create the directory.")
 
-        self.record_topics = self.config["rosbag"]["topic_list"]
+        self.record_topics = self.config.rosbag.record_topics
         rospy.loginfo("Recording topics : {}".format(self.record_topics))
 
         self.is_record = False
@@ -74,16 +77,16 @@ class RosbagRecorderNode(object):
         cmd_rosbag.extend(["--output-name", rosbag_filepath])
         return cmd_rosbag
 
-    def get_rosbag_files(self, record_dir):
-        rosbag_files = []
-        for file in os.listdir(record_dir):
-            if file.endswith(".bag"):
-                rosbag_files.append(file)
-        rosbag_files.sort()
-        return rosbag_files
+    # def get_rosbag_files(self, record_dir):
+    #     rosbag_files = []
+    #     for file in os.listdir(record_dir):
+    #         if file.endswith(".bag"):
+    #             rosbag_files.append(file)
+    #     rosbag_files.sort()
+    #     return rosbag_files
 
     def check_rosbag_files(self):
-        self.rosbag_files = self.get_rosbag_files(self.record_dir)
+        self.rosbag_files = RosbagUtils.get_rosbag_files(self.record_dir)
         self.file_cnt = len(self.rosbag_files)
 
     def start_record(self):

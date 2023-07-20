@@ -581,7 +581,8 @@
       (send self :button-cb arm)
       (if (send self :get-arm-val arm :enable)
         (progn
-          (setq target-coords (send self :get-target-coords arm :pos-scale 1.5))
+          (setq target-coords (send (send self :get-target-coords arm :pos-scale 1.0) :copy-worldcoords))
+          ;; (setq target-coords (send self :get-target-coords arm :pos-scale 1.5))
           (send self :inverse-kinematics arm target-coords)
           (setq robot-action target-coords)
           (send self :robot-action-publisher robot-action)

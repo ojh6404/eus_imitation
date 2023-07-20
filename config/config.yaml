@@ -1,13 +1,36 @@
 control:
   rate: 10
   action_type: "end_effector" # end_effector (x,y,z,r,p,y), angle_vector (seq of joint angle)
-  # control_joint: []
+  joints: ["test"]
   # # conrol_type: collector
 
-rosbag:
-  topic_list:
+policy:
+  model_dir: "test"
+  input_topic:
     [
       "/joint_states",
       "/kinect_head/rgb/image_rect_color/compressed",
       "/pr2_imitation/robot_action",
     ]
+
+dataset:
+  data:
+    JointStates:
+      topic_name: "/joint_states"
+      msg_type: "JointState"
+    RGBImage:
+      topic_name: "/kinect_head/rgb/image_rect_color/compressed"
+      msg_type: "CompressedImage"
+    RobotAction:
+      topic_name: "/pr2_imitation/robot_action"
+      msg_type: "Float32MultiArrayStamped"
+  rosbag:
+    message_filters:
+      slop: 0.05
+      queue_size: 1000
+    record_topics:
+      [
+        "/joint_states",
+        "/kinect_head/rgb/image_rect_color/compressed",
+        "/pr2_imitation/robot_action",
+      ]

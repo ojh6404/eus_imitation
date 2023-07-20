@@ -1,0 +1,14 @@
+gdown
+gitpython
+hickle
+tensorboard
+torch
+torchvision
+numpy
+opencv-python
+matplotlib
+pyyaml
+av
+openmim
+tqdm
+psutil

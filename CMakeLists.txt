@@ -3,6 +3,7 @@ project(eus_imitation)
 
 find_package(catkin
   REQUIRED
+  catkin_virtualenv
   message_generation
   std_msgs
 )
@@ -10,6 +11,17 @@ find_package(catkin
 add_message_files(
   FILES
   Float32MultiArrayStamped.msg
+)
+
+
+catkin_python_setup()
+
+catkin_generate_virtualenv(
+  INPUT_REQUIREMENTS requirements.txt
+  PYTHON_INTERPRETER python3
+  USE_SYSTEM_PACKAGES TRUE
+  ISOLATE_REQUIREMENTS FALSE
+  CHECK_VENV FALSE
 )
 
 generate_messages(
@@ -22,3 +34,5 @@ catkin_package(
   message_runtime 
   std_msgs
 )
+
+
