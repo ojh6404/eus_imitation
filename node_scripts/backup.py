@@ -45,26 +45,31 @@ def main(args):
 
     def get_topic_to_obs(config):
         obs_cfg = config.dataset.data.obs
-        reversed_dict = {value.topic_name: key for key, value in obs_cfg.items()}
-        return reversed_dict
-
-    def get_topic_to_action(config):
         action_cfg = config.dataset.data.actions
-        reversed_dict = {value.topic_name: key for key, value in action_cfg.items()}
-        return reversed_dict
+        topic_obs_dict = {value.topic_name: key for key, value in obs_cfg.items()}
+        topic_action_dict = {value.topic_name: key for key, value in action_cfg.items()}
+        topic_to_obs = {**topic_obs_dict, **topic_action_dict}
+        return topic_to_obs
 
     topic_to_obs = get_topic_to_obs(config)
-    topic_to_action = get_topic_to_action(config)
+
+    print("testeteste")
+    print(topic_to_obs)
+
+    obs_topic_names = [obs.topic_name for obs in obs_cfg.values()]
+    print("obs_topic_names: {}".format(obs_topic_names))
+    action_topic_names = [action.topic_name for action in action_cfg.values()]
+    print("action_topic_names: {}".format(action_topic_names))
+    topic_names = list(set(obs_topic_names + action_topic_names))
 
     subscribers = dict()
-    for obs in obs_cfg.values():
-        subscribers[obs.topic_name] = message_filters.Subscriber(
-            obs.topic_name, eval(obs.msg_type)
-        )
-
-    for action in action_cfg.values():
-        subscribers[action.topic_name] = message_filters.Subscriber(
-            action.topic_name, eval(action.msg_type)
+    # for obs in obs_cfg.values():
+    #     subscribers[obs.topic_name] = message_filters.Subscriber(
+    #         obs.topic_name, eval(obs.msg_type)
+    #     )
+    for topic_name in topic_names:
+        subscribers[topic_name] = message_filters.Subscriber(
+            topic_name, eval(topic_to_obs[topic_name])
         )
 
     topic_names = [topic_name for topic_name in subscribers.keys()]
@@ -78,7 +83,7 @@ def main(args):
 
     def callback(*msgs):
         for topic_name, msg in zip(topic_names, msgs):
-            if topic_name in topic_to_obs.keys():
+            if topic_name in topic_names:
                 if "Image" in msg._type:
                     if "Compressed" in msg._type:
                         data = cv2.cvtColor(
@@ -117,35 +122,18 @@ def main(args):
                 else:
                     data = np.array(msg.data, dtype=np.float32)
                 obs_buf[topic_to_obs[topic_name]].append(data)
-            if topic_name in topic_to_action.keys():
-                data = np.array(msg.data, dtype=np.float32)
-                action_buf[topic_to_action[topic_name]].append(data)
 
     ts.registerCallback(callback)
 
     data_file = h5py.File(os.path.join(args.output_dir, "dataset.hdf5"), mode="w")
     data = data_file.create_group("data")
 
-    action_min = None
-    action_max = None
-
     for i, bag in enumerate(tqdm(rosbags)):
         obs_buf = dict()
-        action_buf = dict()
         for obs_name in topic_to_obs.values():
             obs_buf[obs_name] = []
-        for action_name in topic_to_action.values():
-            action_buf[action_name] = []
 
         demo = data.create_group("demo_{}".format(i))
-
-        # ts = message_filters.ApproximateTimeSynchronizer(
-        #     subscribers.values(),
-        #     queue_size=mf_cfg.queue_size,
-        #     slop=mf_cfg.slop,
-        #     allow_headerless=False,
-        # )
-        # ts.registerCallback(callback)
 
         bag_reader = rosbag.Bag(bag, skip_index=True)
         for message_idx, (topic, msg, t) in enumerate(
@@ -158,55 +146,21 @@ def main(args):
         for obs_name, obs_data in obs_buf.items():
             obs_data = np.array(obs_data)
             demo.create_dataset(
-                "obs/{}".format(obs_name),
+                obs_name,
                 data=obs_data,
                 dtype=obs_data.dtype,
             )
 
-        for action_name, action_data in action_buf.items():
-            action_data = np.array(action_data)
-            demo.create_dataset(
-                "actions",
-                data=action_data,
-                dtype=action_data.dtype,
-            )
-
-        if action_min is None:
-            action_min = np.min(action_data, axis=0)
-            action_max = np.max(action_data, axis=0)
-        else:
-            action_min = np.minimum(action_min, np.min(action_data, axis=0))
-            action_max = np.maximum(action_max, np.max(action_data, axis=0))
-
-        assert len(obs_data) == len(action_data)
-
         data_file.flush()
 
-        if i % 5 == 0 and args.gif:
-            clip = ImageSequenceClip(obs_buf["image"], fps=10)
+        if i % 10 == 0 and args.gif:
+            clip = ImageSequenceClip(obs_buf["image"], fps=30)
             clip.write_gif(
                 os.path.join(args.output_dir, "demo_{}.gif".format(i)),
-                fps=10,
+                fps=30,
                 verbose=False,
             )
 
-    # scale actions in data_file["data/demo_{i}/actions".format(i)] to [-1, 1]
-    action_min = np.array(action_min)
-    action_max = np.array(action_max)
-    action_scale = (action_max - action_min) / 2
-    action_bias = (action_max + action_min) / 2
-    for i in range(len(rosbags)):
-        demo = data["demo_{}".format(i)]
-        actions = demo["actions"]
-        actions_scaled = (actions - action_bias) / action_scale
-        demo["actions"][:] = actions_scaled
-
-    data.attrs["action_scale"] = action_scale
-    data.attrs["action_bias"] = action_bias
-    data.attrs["action_min"] = action_min
-    data.attrs["action_max"] = action_max
-
-    print("data attrs", data.attrs)
     data_file.close()
 
 
@@ -215,6 +169,6 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, default="./config.yaml")
     parser.add_argument("--rosbag_dir", type=str, default="rosbag.bag")
     parser.add_argument("--output_dir", type=str, default="./")
-    parser.add_argument("--gif", action="store_true", default=False)
+    parser.add_argument("--gif", action="store_true")
     args = parser.parse_args()
     main(args)

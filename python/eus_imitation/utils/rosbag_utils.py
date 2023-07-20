@@ -5,6 +5,22 @@ import rospy
 import rosbag
 import os
 import time
+import re
+
+
+def extract_number(filename):
+    # Use regular expression to extract the numeric part from the filename
+    match = re.search(r"\d+", filename)
+    if match:
+        return int(match.group())
+    else:
+        return 0
+
+
+def sort_filenames_by_number(filenames):
+    # Sort the list of filenames using the extract_number function as the key for sorting
+    sorted_filenames = sorted(filenames, key=extract_number)
+    return sorted_filenames
 
 
 class PatchTimer(rospy.Time):
@@ -29,7 +45,7 @@ class RosbagUtils(object):
         for file in os.listdir(record_dir):
             if file.endswith(".bag"):
                 rosbag_files.append(file)
-        rosbag_files.sort()
+        rosbag_files = sort_filenames_by_number(rosbag_files)
         return rosbag_files
 
     @classmethod
@@ -38,3 +54,13 @@ class RosbagUtils(object):
         for rosbag_file in rosbag_files:
             rosbag_full_paths.append(os.path.join(record_dir, rosbag_file))
         return rosbag_full_paths
+
+    @classmethod
+    def get_rosbag_abs_paths(cls, record_dir):
+        rosbag_files = cls.get_rosbag_files(record_dir)
+        rosbag_abs_paths = []
+        for rosbag_file in rosbag_files:
+            rosbag_abs_paths.append(
+                os.path.abspath(os.path.join(record_dir, rosbag_file))
+            )
+        return rosbag_abs_paths

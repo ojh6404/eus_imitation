@@ -1,208 +1,120 @@
 #!/usr/bin/env python3
-import argparse
-import os
-from dataclasses import dataclass
-from enum import Enum
-from typing import List, Optional
-
-
-from eus_imitation.rosbag_utils import RosbagUtils
+import sys
 import time
-
-import genpy
-import numpy as np
+import rospy
 import rosbag
-import rospkg
-from mohou.file import get_project_path
-from mohou.types import (
-    AngleVector,
-    ElementSequence,
-    EpisodeBundle,
-    EpisodeData,
-    MetaData,
-    TimeStampSequence,
-)
+import message_filters
+import h5py
 
-from mohou_ros_utils.config import Config
-from mohou_ros_utils.conversion import MessageConverterCollection
-from mohou_ros_utils.interpolator import (
-    AllSameInterpolationRule,
-    NearestNeighbourMessageInterpolator,
-)
-from mohou_ros_utils.rosbag import bag_to_synced_seqs
-from mohou_ros_utils.script_utils import get_rosbag_paths
-from mohou_ros_utils.types import TimeStampedSequence
+import numpy as np
+import argparse
 
 
-def seqs_to_episodedata(
-    seqs: List[TimeStampedSequence], config: Config, bagname: str
-) -> EpisodeData:
-    conv = MessageConverterCollection.from_config(config)
+from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import JointState
+from eus_imitation.msg import Float32MultiArrayStamped
+from eus_imitation.utils.rosbag_utils import RosbagUtils, PatchTimer
 
-    mohou_elem_seqs = []
-    for seq in seqs:
-        assert seq.topic_name is not None
-        if seq.topic_name not in config.topics.use_topic_list:
-            continue
 
-        elem_type = config.topics.get_by_topic_name(seq.topic_name).mohou_type
-        elem_list = []
-        for obj in seq.object_list:
-            # TODO: to support mutli message to mohou type conversion
-            # we must slice the time sequence
-            assert isinstance(obj, genpy.Message)
-            elem_list.append(conv.apply(obj, elem_type))
-        elem_seq = ElementSequence(elem_list)
-        mohou_elem_seqs.append(elem_seq)
+rospy.Time = PatchTimer
 
-    time_stamps = TimeStampSequence(seqs[0].time_list)
-    metadata = MetaData()
-    metadata["rosbag"] = bagname
-    return EpisodeData.from_seq_list(
-        mohou_elem_seqs, timestamp_seq=time_stamps, metadata=metadata
+
+class Rosbags2Dataset(object):
+    def __init__(self, config_file, rosbag_file):
+        self.config = config
+        self.rosbag_files = rosbag_files
+        self.record_dir = record_dir
+
+    def callback(self, *msgs):
+        for topic_name, msg in zip(topic_names, msgs):
+            if topic_name == "/pr2_imitation/robot_action":
+                print("robot_action", msg)
+
+
+def callback(*msgs):
+    for topic_name, msg in zip(topic_names, msgs):
+        if topic_name == "/pr2_imitation/robot_action":
+            print("robot_action", msg)
+
+
+def main(config, rosbag_dir):
+    # Get an input rosbag
+
+    rosbag_file = "/home/oh/ros/pr2_ws/src/eus_imitation/data/rosbag-0.bag"  # for test
+
+    data_file = h5py.File("/tmp/" + str(0) + ".hdf5", mode="w")
+
+    data_file.create_dataset(
+        "joint_states", (0, 7), maxshape=(None, 7), dtype=np.float32
+    )
+    data_file.flush()
+    data_file.close()
+
+    # Create a rosbag with only synchronized messages
+    joint_states_sub = message_filters.Subscriber("/joint_states", JointState)
+    compressed_img_sub = message_filters.Subscriber(
+        "/kinect_head/rgb/image_rect_color/compressed", CompressedImage
+    )
+    robot_action_sub = message_filters.Subscriber(
+        "/pr2_imitation/robot_action", Float32MultiArrayStamped
     )
 
-
-class RemoveInitPolicy(Enum):
-    remove = "remove"  # remove all constant-initial-states
-    donothing = "donothing"  # just do not alter data
-    skip = "skip"  # if too long constant initial state found, just ignore such data
-
-
-@dataclass
-class StaticInitStateRemover:
-    policy: RemoveInitPolicy = RemoveInitPolicy.skip
-    threshold_coef: float = 0.03
-
-    @classmethod
-    def from_policy_name(cls, name: str) -> "StaticInitStateRemover":
-        return cls(RemoveInitPolicy(name))
-
-    @staticmethod
-    def find_av_static_duration(edata: EpisodeData) -> int:
-        av_seq = edata.get_sequence_by_type(AngleVector)
-        static_duration = 0
-        for i in range(len(av_seq) - 1):
-            diff = np.linalg.norm(av_seq[i + 1].numpy() - av_seq[i].numpy())  # type: ignore
-            if diff > 0.005:  # TODO(HiroIshida) change this using mohou's std value
-                static_duration = i
-                break
-        return static_duration
-
-    def has_too_long_static_av(self, episode: EpisodeData):
-        av_seq = episode.get_sequence_by_type(AngleVector)
-        static_state_len_threshold = len(av_seq) * self.threshold_coef
-        duration = self.find_av_static_duration(episode)
-        too_long_static_av_duration = duration > static_state_len_threshold
-        return too_long_static_av_duration
-
-    def remove_init(self, episode: EpisodeData) -> Optional[EpisodeData]:
-        if self.policy == RemoveInitPolicy.donothing:
-            print("just do not alter...")
-            return episode
-
-        if self.policy == RemoveInitPolicy.remove:
-            static_duration = self.find_av_static_duration(episode)
-            print("remove initial {} state".format(static_duration))
-            start_index = max(static_duration - 1, 0)
-            episode_new = episode[start_index:]
-            return episode_new
-
-        if self.policy == RemoveInitPolicy.skip:
-            if self.has_too_long_static_av(episode):
-                return None
-            else:
-                return episode
-
-        assert False
-
-
-def main(dataset):
-    rosbag_paths = get_rosbag_paths(config.project_path)
-    rosbag_dir = os.path.join(
-        rospkg.RosPack().get_path("eus_imitation"),
-        "data",
+    # ApproximateTimeSynchronizer wants a list of subscribers
+    subscriber_list = [joint_states_sub, compressed_img_sub, robot_action_sub]
+    # Customize ApproximateTimeSynchronizer parameters
+    ats_queue_size = 1000  # Max messages in any queue
+    ats_slop = 0.1  # Max delay to allow between messages
+    rosbag_reader_skip_index = (
+        False  # Makes opening the bag faster, but if the bag is unindexed it will fail
     )
-    assert (
-        len(rosbag_paths) > 0
-    ), "please check if rosbag files are put in '{project_path}/rosbag' with .bag extension"
+    # -------------------------------------------------------------------
 
-    episode_data_list = []
-    for rosbag_path in rosbag_paths:
-        print("processing {}".format(rosbag_path))
+    # We want a dictionary view of the list for efficiency when dispatching messages
+    subscriber_dict = {}
+    for subscriber in subscriber_list:
+        subscriber_dict[subscriber.topic] = subscriber
+    # We want a list with the topic names in the same order to correctly dispatch messages
 
-        bagname = rosbag_path.name
-
-        topic_name_list = config.topics.use_topic_list
-        print("topic_list: {}".format(topic_name_list))
-
-        rule = AllSameInterpolationRule(NearestNeighbourMessageInterpolator)
-        bag = rosbag.Bag(str(rosbag_path))
-        seqs = bag_to_synced_seqs(bag, 1.0 / hz, topic_names=topic_name_list, rule=rule)
-        bag.close()
-
-        episode = seqs_to_episodedata(seqs, config, bagname)
-        episode_init_removed = remover.remove_init(episode)
-        if episode_init_removed is None:
-            continue
-        episode_data_list.append(episode_init_removed)
-
-        if dump_gif:
-            gif_dir_path = config.project_path / "train_data_gifs"
-            gif_dir_path.mkdir(exist_ok=True)
-            if postfix is None:
-                gif_file_path = gif_dir_path / "{}.gif".format(bagname)
-            else:
-                gif_file_path = gif_dir_path / "{}-{}.gif".format(bagname, postfix)
-            episode_init_removed.save_debug_gif(str(gif_file_path), fps=20)
-
-    extra_info: MetaData = MetaData(
-        {"hz": hz, "remove_init_policy": remover.policy.value, "compress": compress}
+    topic_names = [subscriber.topic for subscriber in subscriber_list]
+    ts = message_filters.ApproximateTimeSynchronizer(
+        subscriber_list,
+        queue_size=ats_queue_size,
+        slop=ats_slop,
+        allow_headerless=False,
     )
-    bundle = EpisodeBundle.from_episodes(
-        episode_data_list, meta_data=extra_info, n_untouch_episode=n_untouch_episode
-    )
-    bundle.dump(config.project_path, postfix, compress=compress)
-    bundle.plot_vector_histories(
-        AngleVector, config.project_path, hz=hz, postfix=postfix
-    )
+
+    ts.registerCallback(callback)
+
+    print("Opening bag... (Only reading topics {})".format(topic_names))
+    bag_reader = rosbag.Bag(rosbag_file, skip_index=True)
+    print("Synchronizing...")
+    ini_t = time.time()
+    for message_idx, (topic, msg, t) in enumerate(
+        bag_reader.read_messages(topics=topic_names)
+    ):
+        # Send the message to the correct message_filters.Subscriber
+        subscriber = subscriber_dict.get(topic)
+        if subscriber:
+            # Show some output to show we are alive
+            if message_idx % 1000 == 0:
+                print(
+                    "Message #{}, Topic: {}, message stamp: {}".format(
+                        message_idx, topic, msg.header.stamp
+                    )
+                )
+            subscriber.signalMessage(msg)
+    fin_t = time.time()
+    total_t = fin_t - ini_t
+
+    print("Done. (Parsed {} messages in {}s)".format(message_idx, total_t))
 
 
 if __name__ == "__main__":
-    config_path = os.path.joint(
-        rospkg.RosPack().get_path("eus_imitation"), "config", "config.yaml"
-    )
+    args = argparse.ArgumentParser()
+    args.add_argument("--config", type=str, default="config.yaml")
+    args.add_argument("--rosbag_dir", type=str, default="rosbag.bag")
+    args.parse_args()
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-dataset", type=str, default="test", help="dataset directory")
-    parser.add_argument("-pn", type=str, help="project name")
-    parser.add_argument("-hz", type=float, default=5.0)
-    parser.add_argument(
-        "-remove_policy",
-        type=str,
-        default="skip",
-        help="remove init policy when too long initial static angle vector found",
-    )
-    parser.add_argument("-postfix", type=str, default="", help="bundle postfix")
-    parser.add_argument("--gif", action="store_true", help="dump gifs for debugging")
-    parser.add_argument(
-        "--compress", action="store_true", help="compress episode when dumping bundle"
-    )
-    parser.add_argument("-untouch", type=int, default=5, help="num of untouch episode")
-
-    args = parser.parse_args()
-
-    dataset_dir = args.dataset
-
-    project_name: Optional[str] = args.pn
-    hz: float = args.hz
-    dump_gif: bool = args.gif
-    n_untouch: int = args.untouch
-    compress: bool = args.compress
-
-    # project_path = get_project_path(project_name)
-    # config = Config.from_project_path(project_path)
-
-    # postfix = None if args.postfix == "" else args.postfix
-    # remover = StaticInitStateRemover.from_policy_name(args.remove_policy)
-    main(dataset)
+    config = args.config
+    rosbag_dir = args.rosbag_dir
+    main(config, rosbag_dir)
