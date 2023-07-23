@@ -1,32 +1,27 @@
 #!/usr/bin/env python3
-import sys
 import os
 import time
+import argparse
+import yaml
+import json
+
+import numpy as np
+import cv2
+from tqdm import tqdm
+from easydict import EasyDict as dict
+import h5py
+from moviepy.editor import ImageSequenceClip
+
 import rospy
 import rosbag
 import message_filters
-import h5py
-
-import numpy as np
-import argparse
-import yaml
-from easydict import EasyDict as dict
-import json
-from collections import defaultdict
 from cv_bridge import CvBridge
 
-import cv2
-from moviepy.editor import ImageSequenceClip
-
-from tqdm import tqdm
-
-
-from sensor_msgs.msg import CompressedImage, Image
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import CompressedImage, Image, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
 from eus_imitation.utils.rosbag_utils import RosbagUtils, PatchTimer
 
-
+# for no roscore
 rospy.Time = PatchTimer
 
 
@@ -123,11 +118,33 @@ def main(args):
 
     ts.registerCallback(callback)
 
+    # create directory if not exist
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
     data_file = h5py.File(os.path.join(args.output_dir, "dataset.hdf5"), mode="w")
     data = data_file.create_group("data")
+    data.attrs["num_demos"] = len(rosbags)
+    data.attrs["num_obs"] = len(topic_to_obs)
+    data.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    data.attrs["config"] = json.dumps(config.dataset, indent=4)
+    data.attrs["env_args"] = json.dumps(config.dataset.data.env_args, indent=4)
 
     action_min = None
     action_max = None
+
+    obs_max_buf = dict()
+    obs_min_buf = dict()
+    obs_scale_buf = dict()
+    obs_bias_buf = dict()
+
+    for obs_name in topic_to_obs.values():
+        # only for low_dim
+        if obs_cfg[obs_name].modality == "low_dim":
+            obs_max_buf[obs_name] = None
+            obs_min_buf[obs_name] = None
+            obs_scale_buf[obs_name] = None
+            obs_bias_buf[obs_name] = None
 
     for i, bag in enumerate(tqdm(rosbags)):
         obs_buf = dict()
@@ -157,11 +174,31 @@ def main(args):
 
         for obs_name, obs_data in obs_buf.items():
             obs_data = np.array(obs_data)
+            next_obs_data = np.concatenate(
+                [obs_data[1:], obs_data[-1:]], axis=0
+            )  # repeat last obs
             demo.create_dataset(
                 "obs/{}".format(obs_name),
                 data=obs_data,
                 dtype=obs_data.dtype,
             )
+            demo.create_dataset(
+                "next_obs/{}".format(obs_name),
+                data=next_obs_data,
+                dtype=next_obs_data.dtype,
+            )
+
+            if obs_name in obs_max_buf.keys():
+                if obs_max_buf[obs_name] is None:
+                    obs_max_buf[obs_name] = np.max(obs_data, axis=0)
+                    obs_min_buf[obs_name] = np.min(obs_data, axis=0)
+                else:
+                    obs_max_buf[obs_name] = np.maximum(
+                        obs_max_buf[obs_name], np.max(obs_data, axis=0)
+                    ).astype(np.float32)
+                    obs_min_buf[obs_name] = np.minimum(
+                        obs_min_buf[obs_name], np.min(obs_data, axis=0)
+                    ).astype(np.float32)
 
         for action_name, action_data in action_buf.items():
             action_data = np.array(action_data)
@@ -180,6 +217,7 @@ def main(args):
 
         assert len(obs_data) == len(action_data)
 
+        demo.attrs["num_samples"] = len(action_data)
         data_file.flush()
 
         if i % 5 == 0 and args.gif:
@@ -196,24 +234,46 @@ def main(args):
     action_scale = (action_max - action_min) / 2
     action_bias = (action_max + action_min) / 2
     for i in range(len(rosbags)):
+        # scale actions
         demo = data["demo_{}".format(i)]
         actions = demo["actions"]
         actions_scaled = (actions - action_bias) / action_scale
         demo["actions"][:] = actions_scaled
+
+        # scale observations in obs_max_buf and obs_min_buf to [-1, 1]
+
+        for obs_name in obs_max_buf.keys():
+            obs_max = obs_max_buf[obs_name].astype(np.float32)
+            obs_min = obs_min_buf[obs_name].astype(np.float32)
+            obs_scale = (obs_max - obs_min) / 2
+            obs_bias = (obs_max + obs_min) / 2
+            obs_scale_buf[obs_name] = obs_scale
+            obs_bias_buf[obs_name] = obs_bias
+            obs = demo["obs/{}".format(obs_name)]
+            obs_scaled = (obs - obs_bias) / obs_scale
+            demo["obs/{}".format(obs_name)][:] = obs_scaled
+            next_obs = demo["next_obs/{}".format(obs_name)]
+            next_obs_scaled = (next_obs - obs_bias) / obs_scale
+            demo["next_obs/{}".format(obs_name)][:] = next_obs_scaled
 
     data.attrs["action_scale"] = action_scale
     data.attrs["action_bias"] = action_bias
     data.attrs["action_min"] = action_min
     data.attrs["action_max"] = action_max
 
-    print("data attrs", data.attrs)
+    for obs_name in obs_max_buf.keys():
+        data.attrs["obs_max/{}".format(obs_name)] = obs_max_buf[obs_name]
+        data.attrs["obs_min/{}".format(obs_name)] = obs_min_buf[obs_name]
+        data.attrs["obs_scale/{}".format(obs_name)] = obs_scale_buf[obs_name]
+        data.attrs["obs_bias/{}".format(obs_name)] = obs_bias_buf[obs_name]
+
     data_file.close()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="./config.yaml")
-    parser.add_argument("--rosbag_dir", type=str, default="rosbag.bag")
+    parser.add_argument("--rosbag_dir", type=str, default="/tmp/dataset")
     parser.add_argument("--output_dir", type=str, default="./")
     parser.add_argument("--gif", action="store_true", default=False)
     args = parser.parse_args()
