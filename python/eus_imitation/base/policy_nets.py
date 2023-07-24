@@ -19,69 +19,48 @@ from torchvision import transforms
 
 from eus_imitation.base.base_nets import MLP, RNN, AutoEncoder
 import eus_imitation.util.tensor_utils as TensorUtils
+from eus_imitation.util.obs_utils import ImageModality, FloatVectorModality
+
 
 """
 Policy Networks
 flow : ObservationEncoder -> ActorCore[MLP, RNN, ...] -> MLPDecoder
 """
 
-class ModalityEncoderBase(nn.Module):
-    def __init__(self):
-        super(ModalityEncoderBase, self).__init__()
 
-    @abstractmethod
-    def process_obs(self, obs):
-        """
-        Process observations into a form that can be fed into the encoder.
-        obs input is expected to be a numpy ndarrays.
-        """
-        return TensorUtils.to_tensor(obs)
+class ModalityEncoderBase(nn.Module):
+    modality: Union[ImageModality, FloatVectorModality] = None
+    # nets: Union[nn.ModuleDict, nn.ModuleList] = None
 
 
 class ImageModalityEncoder(ModalityEncoderBase):
-    def __init__(self, cfg: Dict) -> None:
+    def __init__(self, cfg: Dict, obs_name: str) -> None:
         super(ImageModalityEncoder, self).__init__()
 
-
         self.cfg = cfg
-
-
-
         self.pretrained = cfg.pretrained
         self.input_dim = cfg.input_dim
         self.output_dim = cfg.output_dim
-
         has_decoder = cfg.has_decoder
 
-        autoencoder = AutoEncoder( # for test
-            input_size=cfg.input_dim[:2],
-            input_channel=cfg.input_dim[2],
+        self.modality = ImageModality(obs_name)
+        self.normalize = cfg.get("normalize", False)
+        if self.normalize:
+            pass  # TODO: add custom normalization
+        else:
+            self.modality.set_scaler(mean=0.0, std=1.0)
+
+        autoencoder = AutoEncoder(  # for test
+            input_size=[224, 224],
+            input_channel=3,
             latent_dim=16,
             normalization=nn.BatchNorm2d,
         )
 
-
         self.nets = nn.ModuleDict()
-
         self.nets["encoder"] = autoencoder.encoder
         if has_decoder:
             self.nets["decoder"] = autoencoder.decoder
-
-    def process_obs(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
-        """
-        Images like (B, T, H, W, C) or (B, H, W, C) or (H, W, C) torch tensor or numpy ndarray of uint8.
-        Processing obs into a form that can be fed into the encoder like (B*T, C, H, W) or (B, C, H, W) torch tensor.
-        """
-        assert len(obs.shape) == 5 or len(obs.shape) == 4 or len(obs.shape) == 3
-        obs = TensorUtils.to_float(TensorUtils.to_tensor(obs)) # to torch float tensor
-        obs = TensorUtils.to_device(obs, "cuda:0") # to cuda
-        # to Batched 4D tensor
-        obs = obs.view(-1, obs.shape[-3], obs.shape[-2], obs.shape[-1])
-        # to BHWC to BCHW and contigious
-        obs = TensorUtils.contiguous(obs.permute(0, 3, 1, 2))
-        # normalize
-        obs /= 255.0 # to [0, 1] of [B, C, H, W] torch float tensor
-        return obs
 
     def forward(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
@@ -89,25 +68,25 @@ class ImageModalityEncoder(ModalityEncoderBase):
         return latent like (B*T, D) or (B, D) or (D) torch tensor.
         """
         assert len(obs.shape) == 5 or len(obs.shape) == 4 or len(obs.shape) == 3
-        if len(obs.shape) ==5:
+        if len(obs.shape) == 5:
             batch_size, seq_len, height, width, channel = obs.shape
         elif len(obs.shape) == 4:
             batch_size, height, width, channel = obs.shape
-        else: # len(obs.shape) == 3
+        else:  # len(obs.shape) == 3
             height, width, channel = obs.shape
-        processed_obs = self.process_obs(obs)
+        processed_obs = self.modality.process_obs(obs)
         latent = self.nets["encoder"](processed_obs)
         if len(obs.shape) == 5:
-            latent = latent.view(batch_size, seq_len, -1) # (B, T, D)
+            latent = latent.view(batch_size, seq_len, -1)  # (B, T, D)
         elif len(obs.shape) == 4:
-            latent = latent.view(batch_size, -1) # (B, D)
-        else: # len(obs.shape) == 3
-            latent = latent.view(-1) # (D)
+            latent = latent.view(batch_size, -1)  # (B, D)
+        else:  # len(obs.shape) == 3
+            latent = latent.view(-1)  # (D)
         return latent
 
 
 class FloatVectorModalityEncoder(nn.Module):
-    def __init__(self, cfg: Dict) -> None:
+    def __init__(self, cfg: Dict, obs_name: str) -> None:
         super(FloatVectorModalityEncoder, self).__init__()
 
         self.cfg = cfg
@@ -115,6 +94,20 @@ class FloatVectorModalityEncoder(nn.Module):
         self.output_dim = cfg.output_dim
         self.layer_dims = cfg.layer_dims
         self.activation = eval("nn." + cfg.get("activation", "ReLU"))
+
+        self.modality = FloatVectorModality(obs_name)
+        self.normalize = cfg.get("normalize", False)
+        if self.normalize:
+            with open("./config/normalize.yaml", "r") as f:
+                normalizer_cfg = edict(yaml.load(f, Loader=yaml.SafeLoader))
+            max = torch.Tensor(normalizer_cfg[self.modality.name]["obs_max"]).to(
+                "cuda:0"
+            )
+            min = torch.Tensor(normalizer_cfg[self.modality.name]["obs_min"]).to(
+                "cuda:0"
+            )
+
+            self.modality.set_scaler(mean=(max + min) / 2, std=(max - min) / 2)
 
         self.nets = (
             MLP(
@@ -127,20 +120,6 @@ class FloatVectorModalityEncoder(nn.Module):
             else nn.Identity()
         )
 
-    # input numpy ndaarray or torch tensor
-    def process_obs(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
-        """
-        Vector like (B, T, D) or (B, D) or (D) torch tensor or numpy ndarray of float.
-        Processing obs into a form that can be fed into the encoder like (B*T, D) or (B, D) torch tensor.
-        """
-        assert len(obs.shape) == 3 or len(obs.shape) == 2 or len(obs.shape) == 1
-        obs = TensorUtils.to_float(TensorUtils.to_tensor(obs)) # to torch float tensor
-        obs = TensorUtils.to_device(obs, "cuda:0") # to cuda
-        obs = TensorUtils.contiguous(obs) # to contigious
-        obs = obs.view(-1, obs.shape[-1]) # to BD
-        return obs
-
-
     def forward(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
         Vector like (B, T, D) or (B, D) or (D) torch tensor or numpy ndarray of float.
@@ -151,15 +130,15 @@ class FloatVectorModalityEncoder(nn.Module):
             batch_size, seq_len, dim = obs.shape
         elif len(obs.shape) == 2:
             batch_size, dim = obs.shape
-        else: # len(obs.shape) == 1
+        else:  # len(obs.shape) == 1
             dim = obs.shape[0]
-        processed_obs = self.process_obs(obs)
+        processed_obs = self.modality.process_obs(obs)
         vector = self.nets(processed_obs)
         if len(obs.shape) == 3:
             vector = vector.view(batch_size, seq_len, -1)
         elif len(obs.shape) == 2:
             vector = vector.view(batch_size, -1)
-        else: # len(obs.shape) == 1
+        else:  # len(obs.shape) == 1
             vector = vector.view(-1)
         return vector
 
@@ -169,16 +148,16 @@ class ObservationEncoder(nn.Module):
     Encodes observations into a latent space.
     """
 
-    def __init__(self, cfg) -> None:
+    def __init__(self, cfg: Dict) -> None:
         super(ObservationEncoder, self).__init__()
         self.cfg = cfg
-        self._build_network()
+        self._build_encoder()
 
-    def _build_network(self) -> None:
+    def _build_encoder(self) -> None:
         self.nets = nn.ModuleDict()
         for key in self.cfg.keys():
             modality_encoder = eval(self.cfg[key]["modality"] + "Encoder")
-            self.nets[key] = modality_encoder(self.cfg[key]["obs_encoder"])
+            self.nets[key] = modality_encoder(self.cfg[key]["obs_encoder"], key)
 
     def forward(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
@@ -208,9 +187,6 @@ class RNNActor(Actor):
     def __init__(self, cfg: Dict) -> None:
         super(RNNActor, self).__init__()
         self.cfg = cfg
-
-        # print("cfg: ", cfg)
-
         self.obs = cfg.obs
 
         self.policy_type = cfg.policy.type
@@ -267,7 +243,9 @@ class RNNActor(Actor):
         like {"image": image_obs, "robot_ee_pos": robot_ee_pos_obs}
         """
         obs_latents = self.nets["obs_encoder"](obs_dict)
-        outputs, rnn_state = self.nets["rnn"](inputs=obs_latents, rnn_state=rnn_state, return_rnn_state=True)
+        outputs, rnn_state = self.nets["rnn"](
+            inputs=obs_latents, rnn_state=rnn_state, return_rnn_state=True
+        )
         if return_rnn_state:
             return outputs, rnn_state
         else:
@@ -290,24 +268,45 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
-    # parser.add_argument("--dataset", type=str, required=True)
+    parser.add_argument("--dataset", type=str, required=True)
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
         actor_cfg = edict(yaml.safe_load(f)).actor
 
-    batch_size = 32
+    from eus_imitation.util.datasets import SequenceDataset
+    from torch.utils.data import DataLoader
+
+    obs_keys = ["image", "robot_ee_pos"]
+    dataset_keys = ["actions"]
+    dataset = SequenceDataset(
+        hdf5_path=args.dataset,
+        obs_keys=obs_keys,  # observations we want to appear in batches
+        dataset_keys=dataset_keys,  # keys we want to appear in batches
+        load_next_obs=True,
+        frame_stack=1,
+        seq_length=10,  # length-10 temporal sequences
+        pad_frame_stack=True,
+        pad_seq_length=True,  # pad last obs per trajectory to ensure all sequences are sampled
+        get_pad_mask=False,
+        goal_mode=None,
+        # hdf5_cache_mode="all",  # cache dataset in memory to avoid repeated file i/o
+        hdf5_cache_mode=None,  # cache dataset in memory to avoid repeated file i/o
+        hdf5_use_swmr=True,
+    )
+
+    test_obs = dataset[0]["obs"]  # [T, ...]
+
+    test_obs = TensorUtils.to_device(test_obs, "cuda:0")
+    test_obs = TensorUtils.to_batch(test_obs)  # [B, T, ...]
 
     # test actor
     actor = RNNActor(actor_cfg)
 
-    test_obs_dict = {
-        "image": torch.randn(batch_size, 10, 3, 224, 224).to("cuda:0"),
-        "robot_ee_pos": torch.randn(batch_size, 10, 4).to("cuda:0"),
-    }
-
     actor.to("cuda:0")
 
-    output, rnn_state = actor(test_obs_dict)
+    output = actor(test_obs)  # [B, T, D]
 
     input("test")
+
+    del dataset
