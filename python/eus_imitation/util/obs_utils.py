@@ -44,13 +44,6 @@ class Modality(ABC):
     def set_obs_unprocessor(cls, unprocessor=None):
         cls._custom_obs_unprocessor = unprocessor
 
-    # @classmethod
-    # def process_obs(cls, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
-    #     if hasattr(cls, "_custom_obs_processor"):
-    #         return cls._custom_obs_processor(cls, obs)
-    #     else:
-    #         return cls._default_process_obs(cls, obs)
-
     def process_obs(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         if hasattr(self, "_custom_obs_processor"):
             return self._custom_obs_processor(obs)
