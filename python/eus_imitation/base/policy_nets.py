@@ -71,8 +71,6 @@ class MLPActor(Actor):
     def forward(
         self,
         obs_dict: Dict[str, torch.Tensor],
-        rnn_state: Optional[torch.Tensor] = None,
-        return_rnn_state: bool = False,
     ):
         """
         obs_dict is expected to be a dictionary with keys of self.obs_keys
