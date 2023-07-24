@@ -55,11 +55,14 @@ def main(args):
                     ]
                 )
             )
+            print("First data: {}".format(f["data"][demos[0]]["obs"][obs][0]))
             print("")
         print("Actions max: {}".format(f["data"].attrs["action_max"]))
         print("Actions min: {}".format(f["data"].attrs["action_min"]))
         print("Actions scale: {}".format(f["data"].attrs["action_scale"]))
         print("Actions bias: {}".format(f["data"].attrs["action_bias"]))
+        print("First data: {}".format(f["data"][demos[0]]["actions"][0]))
+        print("")
 
         for attr_name in f["data"].attrs.keys():
             if "obs_max" in attr_name:
@@ -87,7 +90,8 @@ def main(args):
                     )
                 )
 
-            print("Env Meta: {}".format(f["data"].attrs["env_args"]))
+        print("")
+        print("Env Meta: {}".format(f["data"].attrs["env_args"]))
 
         print("=============================")
 

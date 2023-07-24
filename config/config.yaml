@@ -47,6 +47,10 @@ actor:
     dim: 4
 
 dataset:
+  rosbag:
+    message_filters:
+      slop: 0.1
+      queue_size: 1000
   data:
     env_args:
       env_name: "Stack"
@@ -93,10 +97,6 @@ dataset:
       topic_name: "/eus_imitation/robot_action"
       msg_type: "Float32MultiArrayStamped"
       dim: 4
-    rosbag:
-      message_filters:
-        slop: 0.1
-        queue_size: 1000
 # data
 #   total
 #   env_args
