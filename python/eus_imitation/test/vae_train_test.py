@@ -2,6 +2,7 @@
 #
 
 import cv2
+from collections import OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -35,7 +36,7 @@ if __name__ == "__main__":
         get_pad_mask=False,
         goal_mode=None,
         # hdf5_cache_mode="all",  # cache dataset in memory to avoid repeated file i/o
-        hdf5_cache_mode="all",  # cache dataset in memory to avoid repeated file i/o
+        hdf5_cache_mode=None,  # cache dataset in memory to avoid repeated file i/o
         hdf5_use_swmr=True,
     )
 
@@ -105,56 +106,66 @@ if __name__ == "__main__":
 
         # [B,T,H,W,C] -> [B*T,C,H,W]
         batch_image = image.reshape(-1, *image.shape[2:]).permute(0, 3, 1, 2)
-        batch_image = batch_image.contiguous().float()
+        batch_image = batch_image.contiguous().float() / 255.0
 
-        if args.model == "ae":
-            x, z = model(batch_image)
-            loss = nn.MSELoss()(x, batch_image)
-        elif args.model == "vae":
-            x, z, mu, logvar = model(batch_image)
+        loss_sum = 0
 
-            kld_weight = 1e-1 * z.size(1) / (224 * 224 * 3 * batch_size)
+        loss_dict = model.loss(batch_image)
+        for loss in loss_dict.values():
+            loss_sum += loss
+        # if args.model == "ae":
+        #     for loss in model.loss(batch_image).values():
+        #         loss += loss
+        # elif args.model == "vae":
+            # x, z, mu, logvar = model(batch_image)
 
-            # kl divergence loss
-            kl_loss = (
-                torch.mean(
-                    -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1),
-                    dim=0,
-                )
-                * kld_weight
-            )
+            # kld_weight = 1e-1 * z.size(1) / (224 * 224 * 3 * batch_size)
 
-            # reconstruction loss
-            loss = nn.MSELoss()(x, batch_image) + kl_loss
+            # # kl divergence loss
+            # kl_loss = (
+            #     torch.mean(
+            #         -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1),
+            #         dim=0,
+            #     )
+            #     * kld_weight
+            # )
+
+            # # reconstruction loss
+            # loss = nn.MSELoss()(x, batch_image) + kl_loss
 
         optimizer.zero_grad()
-        loss.backward()
+        loss_sum.backward()
         optimizer.step()
         if epoch % 10 == 0:
             if args.model == "ae":
-                print("epoch: {}, loss: {}".format(epoch, loss.item()))
+                print("epoch: {}, loss: {}".format(epoch, loss_sum.item()))
             elif args.model == "vae":
                 print(
-                    "epoch: {}, loss: {}, kl_loss: {}".format(
-                        epoch, loss.item(), kl_loss.item()
+                    "epoch: {}, loss: {}, mse: {}, kl: {}".format(
+                        epoch,
+                        loss_sum.item(),
+                        loss_dict["reconstruction_loss"].item(),
+                        loss_dict["kld_loss"].item(),
                     )
                 )
 
     # visualize autoencoder
     #
+
+    random_index = np.random.randint(0, len(dataset))
     model.eval()
-    test_image = dataset[0]["obs"]["image"]  # numpy ndarray [B,H,W,C]
+    test_image = dataset[random_index]["obs"]["image"]  # numpy ndarray [B,H,W,C]
     test_image_numpy = test_image.squeeze(0).astype(np.uint8)
     test_image_tensor = (
         torch.from_numpy(test_image).permute(0, 3, 1, 2).to("cuda:0").float()
-    ).contiguous()
+    ).contiguous() / 255.0
     with torch.no_grad():
         if args.model == "ae":
             x, z = model(test_image_tensor)
         elif args.model == "vae":
             x, z, mu, logvar = model(test_image_tensor)
 
-        test_image_recon = x.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+        test_image_recon = (x.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
         test_image_recon = cv2.cvtColor(test_image_recon, cv2.COLOR_RGB2BGR)
         test_image_numpy = cv2.cvtColor(test_image_numpy, cv2.COLOR_RGB2BGR)
         cv2.imshow("test_image", test_image_numpy)

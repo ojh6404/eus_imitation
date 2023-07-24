@@ -21,9 +21,8 @@ actor:
       obs_encoder:
         pretrained: False
         input_dim: [224, 224, 3]
-        output_dim: 768
-        layer_dims: [128, 128, 128]
-        activation: "ReLU" # [ReLU, Tanh...]
+        output_dim: 16
+        has_decoder: False
       image_tune:
         crop_and_resize: True
         crop_x_offset: 100

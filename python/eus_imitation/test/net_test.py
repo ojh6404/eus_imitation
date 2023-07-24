@@ -7,6 +7,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
 
+import yaml
+from easydict import EasyDict as edict
+
 from eus_imitation.util.datasets import SequenceDataset
 from eus_imitation.base.policy_nets import RNNActor
 import eus_imitation.util.tensor_utils as TensorUtils
@@ -15,17 +18,22 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="data/dataset.hdf5")
+    parser.add_argument("--config", type=str, default="config/config.yaml")
+    parser.add_argument("--dataset", type=str, default="data/dataset.hdf5")
     args = parser.parse_args()
+
+    with open(args.config, "r") as f:
+        config = edict(yaml.safe_load(f)).actor
+
 
     obs_keys = ["image", "robot_ee_pos"]
     dataset_keys = ["actions"]
-    batch_size = 128
+    batch_size = 16
     num_epochs = 3
     gradient_steps_per_epoch = 1000
 
     dataset = SequenceDataset(
-        hdf5_path=args.data_dir,
+        hdf5_path=args.dataset,
         obs_keys=obs_keys,  # observations we want to appear in batches
         dataset_keys=dataset_keys,  # keys we want to appear in batches
         load_next_obs=True,
@@ -49,10 +57,10 @@ if __name__ == "__main__":
         drop_last=True,  # don't provide last batch in dataset pass if it's less than 100 in size
     )
 
-    model = RNNActor(dict())
 
-    for net in model.nets:
-        model.nets[net].to("cuda:0")
+    model = RNNActor(config)
+
+    model.to("cuda:0")
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
@@ -72,23 +80,21 @@ if __name__ == "__main__":
                 data_loader_iter = iter(data_loader)
                 batch = next(data_loader_iter)
 
-            robot_ee_pos = batch["obs"]["robot_ee_pos"].to("cuda:0")
-            next_robot_ee_pos = batch["next_obs"]["robot_ee_pos"].to("cuda:0")
-            image = batch["obs"]["image"].to("cuda:0")
-            next_image = batch["next_obs"]["image"].to("cuda:0")
 
-            print("robot_ee_pos: ", robot_ee_pos.shape)
-            print("next_robot_ee_pos: ", next_robot_ee_pos.shape)
-            print("image: ", image.shape)
-            print("next_image: ", next_image.shape)
+            batch = TensorUtils.to_device(batch, "cuda:0")
 
-            input("test")
+            robot_ee_pos = batch["obs"]["robot_ee_pos"]
+            next_robot_ee_pos = batch["next_obs"]["robot_ee_pos"]
+            image = batch["obs"]["image"]
+            next_image = batch["next_obs"]["image"]
 
-            # to cuda tensor from numpy
+            # print("robot_ee_pos: ", robot_ee_pos.shape, robot_ee_pos.dtype) # [B, T, D]
+            # print("next_robot_ee_pos: ", next_robot_ee_pos.shape, next_robot_ee_pos.dtype) # [B, T, D]
+            # print("image: ", image.shape, image.dtype) # [B, T, H, W, C]
+            # print("next_image: ", next_image.shape, next_image.dtype) # [B, T, H, W, C]
 
-            prediction = model(TensorUtils.to_device(batch["obs"], "cuda:0"))
-            print("prediction: ", prediction.shape)
 
+            prediction = model(batch["obs"])
             loss = nn.MSELoss()(prediction, next_robot_ee_pos)
 
             if epoch == 1 and _ == 0:

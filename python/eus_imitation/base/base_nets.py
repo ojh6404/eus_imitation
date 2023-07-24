@@ -2,6 +2,7 @@
 
 
 from abc import abstractmethod
+from collections import OrderedDict
 import numpy as np
 from typing import Optional, Union, Tuple, List, Dict
 
@@ -13,6 +14,42 @@ from torchvision import models as vision_models
 
 import eus_imitation.util.tensor_utils as TensorUtils
 
+
+
+def calculate_conv_output_size(
+    input_size: List[int],
+    kernel_sizes: List[int],
+    strides: List[int],
+    paddings: List[int],
+) -> List[int]:
+    assert len(kernel_sizes) == len(strides) == len(paddings)
+    output_size = list(input_size)
+    for i in range(len(kernel_sizes)):
+        output_size[0] = (
+            output_size[0] + 2 * paddings[i] - kernel_sizes[i]
+        ) // strides[i] + 1
+        output_size[1] = (
+            output_size[1] + 2 * paddings[i] - kernel_sizes[i]
+        ) // strides[i] + 1
+    return output_size
+
+def calculate_deconv_output_size(
+    input_size: List[int],
+    kernel_sizes: List[int],
+    strides: List[int],
+    paddings: List[int],
+    output_paddings: List[int],
+) -> List[int]:
+    assert len(kernel_sizes) == len(strides) == len(paddings) == len(output_paddings)
+    output_size = list(input_size)
+    for i in range(len(kernel_sizes)):
+        output_size[0] = (
+            output_size[0] - 1
+        ) * strides[i] - 2 * paddings[i] + kernel_sizes[i] + output_paddings[i]
+        output_size[1] = (
+            output_size[1] - 1
+        ) * strides[i] - 2 * paddings[i] + kernel_sizes[i] + output_paddings[i]
+    return output_size
 
 class Reshape(nn.Module):
     """
@@ -160,26 +197,36 @@ class RNN(nn.Module):
         rnn_state: Optional[torch.Tensor] = None,
         return_rnn_state: bool = False,
     ):
-        def time_distributed(inputs, net):
-            batch_size, seq_len, _ = inputs.shape
-            inputs = inputs.reshape(-1, inputs.shape[-1])
-            outputs = net(inputs)
-            outputs = outputs.reshape(batch_size, seq_len, -1)
-            return outputs
+        # def time_distributed(inputs, net):
+        #     """
+        #     function that applies a network to a time distributed input
+        #     inputs : (batch_size, seq_len, ...)
+        #     outputs : (batch_size, seq_len, ...)
+        #     """
+        #     batch_size, seq_len, = inputs.shape[:2]
+        #     # inputs = inputs.reshape(-1, inputs.shape[-1])
+        #     outputs = net(inputs)
+        #     # outputs = outputs.reshape(batch_size, seq_len, -1)
+        #     return outputs
 
-        assert inputs.ndim == 3
-        batch_size, seq_len, _ = inputs.shape
+        assert inputs.ndim == 3 # (batch_size, seq_len, input_dim)
+        batch_size, _, _ = inputs.shape
         if rnn_state is None:
             rnn_state = self.get_rnn_init_state(batch_size, inputs.device)
+
         outputs, rnn_state = self.nets(inputs, rnn_state)
         if self._per_step_net is not None:
-            outputs = time_distributed(outputs, self._per_step_net)
-            # outputs = TensorUtils.time_distributed(outputs, self._per_step_net)
-        return outputs, rnn_state if return_rnn_state else outputs
+            outputs = self._per_step_net(outputs)
+            # outputs = time_distributed(outputs, self._per_step_net)
+        if return_rnn_state:
+            return outputs, rnn_state
+        else:
+            return outputs
 
     def forward_step(self, inputs: torch.Tensor, rnn_state: torch.Tensor):
         """
         return rnn outputs and rnn state for the next step
+        inputs : (batch_size, input_dim)
         """
         assert inputs.ndim == 2
         inputs = TensorUtils.to_sequence(inputs)
@@ -246,19 +293,162 @@ class Conv(nn.Module):
 
 class VisionModule(nn.Module):
     """
-    inputs like uint8 (B, C, H, W) or (B, C, H, W) of numpy ndarray or torch Tensor
+    inputs like uint8 (B, C, H, W) or (B, C, H, W) or (C, H, W) torch.Tensor
     """
 
-    @abstractmethod
-    def preprocess(self, inputs: torch.Tensor) -> torch.Tensor:
-        """
-        preprocess inputs to fit the pretrained model
-        """
-        raise NotImplementedError
+    # @abstractmethod
+    # def preprocess(self, inputs: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     preprocess inputs to fit the pretrained model
+    #     """
+    #     raise NotImplementedError
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        inputs = self.preprocess(inputs)
+        # inputs = self.preprocess(inputs)
         return self.net(inputs)
+
+class ConvEncoder(VisionModule):
+    def __init__(
+        self,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        mean_var: bool = False,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = None,
+    ) -> None:
+        super(ConvEncoder, self).__init__()
+        output_conv_size = calculate_conv_output_size(
+            input_size=input_size,  # TODO: input size
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+        )
+
+        self.mean_var = mean_var
+        self.output_activation = output_activation if output_activation is not None else lambda x: x
+
+        self.encoder_conv = Conv(
+            input_channel=input_channel,
+            channels=channels,
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            layer=nn.Conv2d,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=None,
+        )
+
+        self.encoder_reshape = Reshape(
+            (-1, channels[-1] * output_conv_size[0] * output_conv_size[1])
+        )
+
+        if mean_var:
+            self.encoder_mlp_mu = MLP(
+                input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
+                output_dim=latent_dim,
+                layer_dims=[latent_dim * 4, latent_dim * 2],
+                activation=activation,
+                dropouts=None,
+                normalization=nn.BatchNorm1d
+                if normalization is not None
+                else normalization,
+            )
+            self.encoder_mlp_logvar = MLP(
+                input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
+                output_dim=latent_dim,
+                layer_dims=[latent_dim * 4, latent_dim * 2],
+                activation=activation,
+                dropouts=None,
+                normalization=nn.BatchNorm1d
+                if normalization is not None
+                else normalization,
+            )
+        else:
+            self.encoder_mlp = MLP(
+                input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
+                output_dim=latent_dim,
+                layer_dims=[latent_dim * 4, latent_dim * 2],
+                activation=activation,
+                dropouts=None,
+                normalization=nn.BatchNorm1d
+                if normalization is not None
+                else normalization,
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.encoder_conv(x)
+        x = self.encoder_reshape(x)
+        if self.mean_var:
+            mu = self.output_activation(self.encoder_mlp_mu(x))
+            logvar = self.output_activation(self.encoder_mlp_logvar(x))
+            return mu, logvar
+        else:
+            z = self.output_activation(self.encoder_mlp(x))
+            return z
+
+
+
+class ConvDecoder(VisionModule):
+    def __init__(
+        self,
+        input_conv_size: List[int] = [4, 4],
+        output_channel: int = 3,
+        channels: List[int] = [256, 128, 64, 32, 16, 8],
+        kernel_sizes: List[int] = [3, 4, 4, 4, 4, 4],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
+    ) -> None:
+        super(ConvDecoder, self).__init__()
+
+        self.output_activation = output_activation if output_activation is not None else lambda x: x
+
+        self.decoder_mlp = MLP(
+            input_dim=latent_dim,
+            output_dim=channels[0] * input_conv_size[0] * input_conv_size[1],
+            layer_dims=[latent_dim * 2, latent_dim * 4],
+            activation=activation,
+            dropouts=None,
+            normalization=nn.BatchNorm1d
+            if normalization is not None
+            else normalization,
+        )
+        self.decoder_conv = Conv(
+            input_channel=channels[0],
+            channels=channels[1:] + [output_channel],
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            layer=nn.ConvTranspose2d,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=None,
+        )
+
+        self.decoder_reshape = Reshape(
+            (-1, channels[0], input_conv_size[0], input_conv_size[1])
+        )
+
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        x = self.decoder_mlp(z)
+        x = self.decoder_reshape(x)
+        x = self.decoder_conv(x)
+        return self.output_activation(x)
 
 
 class AutoEncoder(VisionModule):
@@ -268,18 +458,18 @@ class AutoEncoder(VisionModule):
 
     def __init__(
         self,
-        input_size: List[int],
-        input_channel: int,
-        channels: List[int],
-        encoder_kernel_sizes: List[int],
-        decoder_kernel_sizes: List[int],
-        strides: List[int],
-        paddings: List[int],
-        latent_dim: int,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        encoder_kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        decoder_kernel_sizes: List[int] = [3, 4, 4, 4, 4, 4],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
         activation: nn.Module = nn.ReLU,
         dropouts: Optional[List[float]] = None,
         normalization=None,
-        output_activation: Optional[nn.Module] = None,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
     ) -> None:
         super(AutoEncoder, self).__init__()
 
@@ -291,22 +481,6 @@ class AutoEncoder(VisionModule):
             == len(decoder_kernel_sizes)
         )
 
-        def calculate_conv_output_size(
-            input_size: List[int],
-            kernel_sizes: List[int],
-            strides: List[int],
-            paddings: List[int],
-        ) -> List[int]:
-            assert len(kernel_sizes) == len(strides) == len(paddings)
-            output_size = list(input_size)
-            for i in range(len(kernel_sizes)):
-                output_size[0] = (
-                    output_size[0] + 2 * paddings[i] - kernel_sizes[i]
-                ) // strides[i] + 1
-                output_size[1] = (
-                    output_size[1] + 2 * paddings[i] - kernel_sizes[i]
-                ) // strides[i] + 1
-            return output_size
 
         output_conv_size = calculate_conv_output_size(
             input_size=input_size,  # TODO: input size
@@ -315,107 +489,65 @@ class AutoEncoder(VisionModule):
             paddings=paddings,
         )
 
-        self.encoder_conv = Conv(
+        self.encoder = ConvEncoder(
+            input_size=input_size,
             input_channel=input_channel,
             channels=channels,
             kernel_sizes=encoder_kernel_sizes,
             strides=strides,
             paddings=paddings,
-            layer=nn.Conv2d,
+            latent_dim=latent_dim,
+            mean_var=False,
             activation=activation,
             dropouts=dropouts,
             normalization=normalization,
-            output_activation=output_activation,
+            output_activation=None,
         )
 
-        self.decoder_conv = Conv(
-            input_channel=channels[-1],
-            channels=list(reversed(channels[:-1])) + [input_channel],
+        self.decoder = ConvDecoder(
+            input_conv_size=output_conv_size,
+            output_channel=input_channel,
+            channels=list(reversed(channels)),
             kernel_sizes=decoder_kernel_sizes,
             strides=list(reversed(strides)),
             paddings=list(reversed(paddings)),
-            layer=nn.ConvTranspose2d,
+            latent_dim=latent_dim,
             activation=activation,
             dropouts=dropouts,
             normalization=normalization,
             output_activation=output_activation,
         )
-        self.encoder_mlp = MLP(
-            input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
-            output_dim=latent_dim,
-            layer_dims=[latent_dim * 4, latent_dim * 2],
-            activation=activation,
-            dropouts=None,
-            normalization=nn.BatchNorm1d
-            if normalization is not None
-            else normalization,
-        )
-        self.decoder_mlp = MLP(
-            input_dim=latent_dim,
-            output_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
-            layer_dims=[latent_dim * 2, latent_dim * 4],
-            activation=activation,
-            dropouts=None,
-            normalization=nn.BatchNorm1d
-            if normalization is not None
-            else normalization,
-        )
 
-        self.encoder_reshape = Reshape(
-            (-1, channels[-1] * output_conv_size[0] * output_conv_size[1])
-        )
-        self.decoder_reshape = Reshape(
-            (-1, channels[-1], output_conv_size[0], output_conv_size[1])
-        )
-
-        # self.encoder = nn.Sequential(
-        #     self.encoder_conv, self.encoder_reshape, self.encoder_mlp
-        # )
-        # self.decoder = nn.Sequential(
-        #     self.decoder_mlp, self.decoder_reshape, self.decoder_conv, nn.Sigmoid()
-        # )
-
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.preprocess(x)
-        x = self.encoder_conv(x)
-        x = self.encoder_reshape(x)
-        z = self.encoder_mlp(x)
-        return z
-
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        x = self.decoder_mlp(z)
-        x = self.decoder_reshape(x)
-        x = self.decoder_conv(x)
-        x = self.unprocess(x)
-        return x
-
-    def preprocess(self, inputs: torch.Tensor) -> torch.Tensor:
-        return inputs.float() / 255.0
-
-    def unprocess(self, inputs: torch.Tensor) -> torch.Tensor:
-        return inputs * 255.0
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        z = self.encode(x)
-        x = self.decode(z)
+        z = self.encoder(x)
+        x = self.decoder(z)
         return x, z
+
+    def loss(self, x: torch.Tensor) -> torch.Tensor:
+        loss_dict = {}
+        x_hat, z = self.forward(x)
+        reconstruction_loss = nn.MSELoss()(x_hat, x)
+        loss_dict["reconstruction_loss"] = reconstruction_loss
+        return loss_dict
+
 
 
 class VariationalAutoEncoder(VisionModule):
     def __init__(
         self,
-        input_size: List[int],
-        input_channel: int,
-        channels: List[int],
-        encoder_kernel_sizes: List[int],
-        decoder_kernel_sizes: List[int],
-        strides: List[int],
-        paddings: List[int],
-        latent_dim: int,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        encoder_kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        decoder_kernel_sizes: List[int] = [3, 4, 4, 4, 4, 4],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
         activation: nn.Module = nn.ReLU,
         dropouts: Optional[List[float]] = None,
         normalization=None,
-        output_activation: Optional[nn.Module] = None,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
     ) -> None:
         super(VariationalAutoEncoder, self).__init__()
         assert (
@@ -426,23 +558,6 @@ class VariationalAutoEncoder(VisionModule):
             == len(decoder_kernel_sizes)
         )
 
-        def calculate_conv_output_size(
-            input_size: List[int],
-            kernel_sizes: List[int],
-            strides: List[int],
-            paddings: List[int],
-        ) -> List[int]:
-            assert len(kernel_sizes) == len(strides) == len(paddings)
-            output_size = list(input_size)
-            for i in range(len(kernel_sizes)):
-                output_size[0] = (
-                    output_size[0] + 2 * paddings[i] - kernel_sizes[i]
-                ) // strides[i] + 1
-                output_size[1] = (
-                    output_size[1] + 2 * paddings[i] - kernel_sizes[i]
-                ) // strides[i] + 1
-            return output_size
-
         output_conv_size = calculate_conv_output_size(
             input_size=input_size,  # TODO: input size
             kernel_sizes=encoder_kernel_sizes,
@@ -450,74 +565,34 @@ class VariationalAutoEncoder(VisionModule):
             paddings=paddings,
         )
 
-        self.encoder_conv = Conv(
+        self.encoder = ConvEncoder(
+            input_size=input_size,
             input_channel=input_channel,
             channels=channels,
             kernel_sizes=encoder_kernel_sizes,
             strides=strides,
             paddings=paddings,
-            layer=nn.Conv2d,
+            latent_dim=latent_dim,
+            mean_var=True,
             activation=activation,
             dropouts=dropouts,
             normalization=normalization,
-            output_activation=output_activation,
+            output_activation=None,
         )
 
-        self.decoder_conv = Conv(
-            input_channel=channels[-1],
-            channels=list(reversed(channels[:-1])) + [input_channel],
+        self.decoder = ConvDecoder(
+            input_conv_size=output_conv_size,
+            output_channel=input_channel,
+            channels=list(reversed(channels)),
             kernel_sizes=decoder_kernel_sizes,
             strides=list(reversed(strides)),
             paddings=list(reversed(paddings)),
-            layer=nn.ConvTranspose2d,
+            latent_dim=latent_dim,
             activation=activation,
             dropouts=dropouts,
             normalization=normalization,
             output_activation=output_activation,
         )
-        self.encoder_mlp_mu = MLP(
-            input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
-            output_dim=latent_dim,
-            layer_dims=[latent_dim * 4, latent_dim * 2],
-            activation=activation,
-            dropouts=None,
-            normalization=nn.BatchNorm1d
-            if normalization is not None
-            else normalization,
-        )
-        self.encoder_mlp_logvar = MLP(
-            input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
-            output_dim=latent_dim,
-            layer_dims=[latent_dim * 4, latent_dim * 2],
-            activation=activation,
-            dropouts=None,
-            normalization=nn.BatchNorm1d
-            if normalization is not None
-            else normalization,
-        )
-        self.decoder_mlp = MLP(
-            input_dim=latent_dim,
-            output_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
-            layer_dims=[latent_dim * 2, latent_dim * 4],
-            activation=activation,
-            dropouts=None,
-            normalization=nn.BatchNorm1d
-            if normalization is not None
-            else normalization,
-        )
-
-        self.encoder_reshape = Reshape(
-            (-1, channels[-1] * output_conv_size[0] * output_conv_size[1])
-        )
-        self.decoder_reshape = Reshape(
-            (-1, channels[-1], output_conv_size[0], output_conv_size[1])
-        )
-
-    def preprocess(self, inputs: torch.Tensor) -> torch.Tensor:
-        return inputs.float() / 255.0
-
-    def unprocess(self, inputs: torch.Tensor) -> torch.Tensor:
-        return inputs * 255.0
 
     def reparametrize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         std = torch.exp(0.5 * logvar)
@@ -527,27 +602,41 @@ class VariationalAutoEncoder(VisionModule):
     def encode(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        x = self.preprocess(x)
-        x = self.encoder_conv(x)
-        x = self.encoder_reshape(x)
-        mu = self.encoder_mlp_mu(x)
-        logvar = self.encoder_mlp_logvar(x)
+        mu, logvar = self.encoder(x)
         z = self.reparametrize(mu, logvar)
         return z, mu, logvar
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
-        x = self.decoder_mlp(z)
-        x = self.decoder_reshape(x)
-        x = self.decoder_conv(x)
-        x = self.unprocess(x)
-        return x
+        return self.decoder(z)
 
     def forward(
         self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         z, mu, logvar = self.encode(x)
         x = self.decode(z)
         return x, z, mu, logvar
+
+    def kld_loss(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        # kld_weight = 1e-1 / torch.prod(torch.Tensor(mu.shape)) # TODO
+        batch_size = mu.size(0)
+        kld_weight = 1e-1 * mu.size(1) / (224 * 224 * 3 * batch_size) # TODO
+        kl_loss = (
+            torch.mean(
+                -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1),
+                dim=0,
+            )
+            * kld_weight
+        )
+        return kl_loss
+
+    def loss(self, x : torch.Tensor) -> Dict[str, torch.Tensor]:
+        loss_dict = dict()
+        x_hat, z, mu, logvar = self.forward(x)
+        reconstruction_loss = nn.MSELoss()(x_hat, x)
+        kld_loss = self.kld_loss(mu, logvar)
+        loss_dict["reconstruction_loss"] = reconstruction_loss
+        loss_dict["kld_loss"] = kld_loss
+        return loss_dict
 
 
 class R3M(VisionModule):
@@ -697,5 +786,5 @@ if __name__ == "__main__":
     )
 
     test_image_input = torch.randn(5, 3, 224, 224)
-    x, mu, logvar = test_vae(test_image_input)
-    print(x.shape, mu.shape, logvar.shape)
+    x, z, mu, logvar = test_vae(test_image_input)
+    print(x.shape, z.shape, mu.shape, logvar.shape)

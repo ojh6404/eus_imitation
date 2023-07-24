@@ -17,14 +17,13 @@ import torch.distributions as D
 from torchvision import models as vision_models
 from torchvision import transforms
 
-from eus_imitation.base.base_nets import MLP, RNN
+from eus_imitation.base.base_nets import MLP, RNN, AutoEncoder
 import eus_imitation.util.tensor_utils as TensorUtils
 
-import ssl
-
-ssl._create_default_https_context = ssl._create_unverified_context
-resnet = vision_models.resnet18(weights=vision_models.ResNet18_Weights.DEFAULT)
-
+"""
+Policy Networks
+flow : ObservationEncoder -> ActorCore[MLP, RNN, ...] -> MLPDecoder
+"""
 
 class ModalityEncoderBase(nn.Module):
     def __init__(self):
@@ -42,40 +41,69 @@ class ModalityEncoderBase(nn.Module):
 class ImageModalityEncoder(ModalityEncoderBase):
     def __init__(self, cfg: Dict) -> None:
         super(ImageModalityEncoder, self).__init__()
-        self.resnet = resnet
-        self.resnet.fc = MLP(
-            input_dim=512,
-            layer_dims=[256],
-            output_dim=768,
-            activation=nn.ReLU,
-        )
-        self.resnet.train()
 
-        self.nets = nn.Sequential(
-            self.resnet,
+
+        self.cfg = cfg
+
+
+
+        self.pretrained = cfg.pretrained
+        self.input_dim = cfg.input_dim
+        self.output_dim = cfg.output_dim
+
+        has_decoder = cfg.has_decoder
+
+        autoencoder = AutoEncoder( # for test
+            input_size=cfg.input_dim[:2],
+            input_channel=cfg.input_dim[2],
+            latent_dim=16,
+            normalization=nn.BatchNorm2d,
         )
+
+
+        self.nets = nn.ModuleDict()
+
+        self.nets["encoder"] = autoencoder.encoder
+        if has_decoder:
+            self.nets["decoder"] = autoencoder.decoder
 
     def process_obs(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
-        Batched Time sequence  of images like (5, 10, 3, 224, 224) torch tensor is expected.
-        Processing obs into a form that can be fed into the encoder.
+        Images like (B, T, H, W, C) or (B, H, W, C) or (H, W, C) torch tensor or numpy ndarray of uint8.
+        Processing obs into a form that can be fed into the encoder like (B*T, C, H, W) or (B, C, H, W) torch tensor.
         """
-        obs = TensorUtils.to_tensor(obs)
-        batch_size, seq_len, channels, height, width = obs.shape
-        obs = obs.view(-1, channels, height, width)
-        obs /= 255.0
+        assert len(obs.shape) == 5 or len(obs.shape) == 4 or len(obs.shape) == 3
+        obs = TensorUtils.to_float(TensorUtils.to_tensor(obs)) # to torch float tensor
+        obs = TensorUtils.to_device(obs, "cuda:0") # to cuda
+        # to Batched 4D tensor
+        obs = obs.view(-1, obs.shape[-3], obs.shape[-2], obs.shape[-1])
+        # to BHWC to BCHW and contigious
+        obs = TensorUtils.contiguous(obs.permute(0, 3, 1, 2))
+        # normalize
+        obs /= 255.0 # to [0, 1] of [B, C, H, W] torch float tensor
         return obs
 
     def forward(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
-        Batched Time sequence  of images like (5, 10, 224, 224, 3) torch tensor is expected.
-        return Batched Time sequence of latent vectors like (5, 10, 768) torch tensor.
+        Images like (B, T, H, W, C) or (B, H, W, C) or (H, W, C) torch tensor or numpy ndarray of uint8.
+        return latent like (B*T, D) or (B, D) or (D) torch tensor.
         """
-        batch_size, seq_len, height, width, channels = obs.shape
-        obs = self.process_obs(obs)
-        obs = self.nets(obs)
-        obs = obs.view(batch_size, seq_len, -1)
-        return obs
+        assert len(obs.shape) == 5 or len(obs.shape) == 4 or len(obs.shape) == 3
+        if len(obs.shape) ==5:
+            batch_size, seq_len, height, width, channel = obs.shape
+        elif len(obs.shape) == 4:
+            batch_size, height, width, channel = obs.shape
+        else: # len(obs.shape) == 3
+            height, width, channel = obs.shape
+        processed_obs = self.process_obs(obs)
+        latent = self.nets["encoder"](processed_obs)
+        if len(obs.shape) == 5:
+            latent = latent.view(batch_size, seq_len, -1) # (B, T, D)
+        elif len(obs.shape) == 4:
+            latent = latent.view(batch_size, -1) # (B, D)
+        else: # len(obs.shape) == 3
+            latent = latent.view(-1) # (D)
+        return latent
 
 
 class FloatVectorModalityEncoder(nn.Module):
@@ -102,24 +130,38 @@ class FloatVectorModalityEncoder(nn.Module):
     # input numpy ndaarray or torch tensor
     def process_obs(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
-        Batched Time sequence  of float vectors like (5, 10, 4) numpy ndarray or torch tensor is expected.
-        Processing obs into a form that can be fed into the encoder.
+        Vector like (B, T, D) or (B, D) or (D) torch tensor or numpy ndarray of float.
+        Processing obs into a form that can be fed into the encoder like (B*T, D) or (B, D) torch tensor.
         """
-        obs = TensorUtils.to_tensor(obs)
-        batch_size, seq_len, dim = obs.shape
-        obs = obs.view(-1, dim)
+        assert len(obs.shape) == 3 or len(obs.shape) == 2 or len(obs.shape) == 1
+        obs = TensorUtils.to_float(TensorUtils.to_tensor(obs)) # to torch float tensor
+        obs = TensorUtils.to_device(obs, "cuda:0") # to cuda
+        obs = TensorUtils.contiguous(obs) # to contigious
+        obs = obs.view(-1, obs.shape[-1]) # to BD
         return obs
+
 
     def forward(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
-        Batched Time sequence  of float vectors like (5, 10, 4) numpy ndarray or torch tensor is expected.
-        return Batched Time sequence of latent vectors like (5, 10, 4) torch tensor.
+        Vector like (B, T, D) or (B, D) or (D) torch tensor or numpy ndarray of float.
+        return Vector like (B*T, D) or (B, D) or (D) torch tensor.
         """
-        batch_size, seq_len, dim = obs.shape
-        obs = self.process_obs(obs)
-        obs = self.nets(obs)
-        obs = obs.view(batch_size, seq_len, -1)
-        return obs
+        assert len(obs.shape) == 3 or len(obs.shape) == 2 or len(obs.shape) == 1
+        if len(obs.shape) == 3:
+            batch_size, seq_len, dim = obs.shape
+        elif len(obs.shape) == 2:
+            batch_size, dim = obs.shape
+        else: # len(obs.shape) == 1
+            dim = obs.shape[0]
+        processed_obs = self.process_obs(obs)
+        vector = self.nets(processed_obs)
+        if len(obs.shape) == 3:
+            vector = vector.view(batch_size, seq_len, -1)
+        elif len(obs.shape) == 2:
+            vector = vector.view(batch_size, -1)
+        else: # len(obs.shape) == 1
+            vector = vector.view(-1)
+        return vector
 
 
 class ObservationEncoder(nn.Module):
@@ -166,6 +208,8 @@ class RNNActor(Actor):
     def __init__(self, cfg: Dict) -> None:
         super(RNNActor, self).__init__()
         self.cfg = cfg
+
+        # print("cfg: ", cfg)
 
         self.obs = cfg.obs
 
@@ -216,16 +260,18 @@ class RNNActor(Actor):
         self,
         obs_dict: Dict[str, torch.Tensor],
         rnn_state: Optional[torch.Tensor] = None,
-        return_rnn_states: bool = False,
+        return_rnn_state: bool = False,
     ):
         """
         obs_dict is expected to be a dictionary with keys of self.obs_keys
         like {"image": image_obs, "robot_ee_pos": robot_ee_pos_obs}
         """
-
         obs_latents = self.nets["obs_encoder"](obs_dict)
-        output, rnn_state = self.nets["rnn"](obs_latents, rnn_state)
-        return output, rnn_state if return_rnn_states else output
+        outputs, rnn_state = self.nets["rnn"](inputs=obs_latents, rnn_state=rnn_state, return_rnn_state=True)
+        if return_rnn_state:
+            return outputs, rnn_state
+        else:
+            return outputs
 
     def forward_step(
         self, obs_dict: Dict[str, torch.Tensor], rnn_state: torch.Tensor

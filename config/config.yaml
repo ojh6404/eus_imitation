@@ -4,14 +4,47 @@ control:
   joints: ["test"]
   # # conrol_type: collector
 
-policy:
-  model_dir: "test"
-  input_topic:
-    [
-      "/joint_states",
-      "/kinect_head/rgb/image_rect_color/compressed",
-      "/pr2_imitation/robot_action",
-    ]
+actor:
+  policy:
+    type: "RNNActor"
+    rnn:
+      type: "LSTM"
+      rnn_num_layers: 2
+      rnn_hidden_dim: 400
+    mlp_layer_dims: [128, 128, 128]
+    mlp_activation: "ReLU"
+  obs: # input into policy
+    image:
+      modality: "ImageModality"
+      topic_name: "/kinect_head/rgb/image_rect_color/compressed"
+      msg_type: "CompressedImage"
+      obs_encoder:
+        pretrained: False
+        input_dim: [224, 224, 3]
+        output_dim: 16
+        has_decoder: False
+      image_tune:
+        crop_and_resize: True
+        crop_x_offset: 100
+        crop_y_offset: 40
+        crop_height: 400
+        crop_width: 300
+        height: 224
+        width: 224
+    robot_ee_pos:
+      modality: "FloatVectorModality"
+      topic_name: "/eus_imitation/robot_state"
+      msg_type: "Float32MultiArrayStamped"
+      obs_encoder:
+        input_dim: 4
+        output_dim: 4
+        layer_dims: null
+        activation: "ReLU" # [ReLU, Tanh...]
+  actions:
+    modality: "FloatVectorModality"
+    topic_name: "/eus_imitation/robot_action"
+    msg_type: "Float32MultiArrayStamped"
+    dim: 4
 
 dataset:
   data:
@@ -30,9 +63,14 @@ dataset:
           type: "IK"
     obs: # input into policy
       image:
-        modality: "rgb"
+        modality: "ImageModality"
         topic_name: "/kinect_head/rgb/image_rect_color/compressed"
         msg_type: "CompressedImage"
+        obs_encoder:
+          pretrained: False
+          input_dim: [224, 224, 3]
+          output_dim: 16
+          has_decoder: False
         image_tune:
           crop_and_resize: True
           crop_x_offset: 100
@@ -42,19 +80,23 @@ dataset:
           height: 224
           width: 224
       robot_ee_pos:
-        modality: "low_dim"
-        topic_name: "/pr2_data_augmentation/robot_action"
+        modality: "FloatVectorModality"
+        topic_name: "/eus_imitation/robot_state"
         msg_type: "Float32MultiArrayStamped"
-    actions: # output from policy
-      robot_ee_pos:
-        modality: "low_dim"
-        topic_name: "/pr2_data_augmentation/robot_action"
-        msg_type: "Float32MultiArrayStamped"
-    states: # not into policy, but used for something else
-  rosbag:
-    message_filters:
-      slop: 0.1
-      queue_size: 1000
+        obs_encoder:
+          input_dim: 4
+          output_dim: 4
+          layer_dims: null
+          activation: "ReLU" # [ReLU, Tanh...]
+    actions:
+      modality: "FloatVectorModality"
+      topic_name: "/eus_imitation/robot_action"
+      msg_type: "Float32MultiArrayStamped"
+      dim: 4
+    rosbag:
+      message_filters:
+        slop: 0.1
+        queue_size: 1000
 # data
 #   total
 #   env_args

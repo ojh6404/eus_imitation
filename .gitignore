@@ -5,3 +5,5 @@ tmp/
 
 *.hdf5
 data/
+
+*.pyc

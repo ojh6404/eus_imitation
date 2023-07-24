@@ -41,7 +41,9 @@ class TestNet(nn.Module):
         self.rnn_state = self.init_hidden_state(batch_size)
         x = self.fc_in(x)
         x, self.rnn_state = self.lstm(x, self.rnn_state)
+        print("x shape: ", x.shape)
         x = self.fc_out(x)
+        print("after x shape: ", x.shape)
         return x
 
     def forward_step(self, x, rnn_state):
@@ -55,14 +57,14 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="data/dataset.hdf5")
+    parser.add_argument("--dataset", type=str, default="data/dataset.hdf5")
     args = parser.parse_args()
 
     obs_keys = ["image", "robot_ee_pos"]
     dataset_keys = ["actions"]
 
     dataset = SequenceDataset(
-        hdf5_path=args.data_dir,
+        hdf5_path=args.dataset,
         obs_keys=("robot_ee_pos", "image"),  # observations we want to appear in batches
         dataset_keys=(  # can optionally specify more keys here if they should appear in batches
             "actions",

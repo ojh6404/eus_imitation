@@ -218,6 +218,7 @@ def main(args):
         assert len(obs_data) == len(action_data)
 
         demo.attrs["num_samples"] = len(action_data)
+        print(demo.attrs["num_samples"])
         data_file.flush()
 
         if i % 5 == 0 and args.gif:
