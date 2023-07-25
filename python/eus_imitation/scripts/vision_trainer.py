@@ -17,13 +17,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="data/dataset.hdf5")
     parser.add_argument("--num_epochs", type=int, default=3000)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--model", type=str, default="ae")
     args = parser.parse_args()
 
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     obs_keys = ["image"]
     dataset_keys = ["actions"]
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     dataset = SequenceDataset(
         hdf5_path=args.dataset,
@@ -36,18 +36,14 @@ if __name__ == "__main__":
         pad_seq_length=True,  # pad last obs per trajectory to ensure all sequences are sampled
         get_pad_mask=False,
         goal_mode=None,
-        # hdf5_cache_mode="all",  # cache dataset in memory to avoid repeated file i/o
         hdf5_cache_mode=None,  # cache dataset in memory to avoid repeated file i/o
         hdf5_use_swmr=True,
     )
 
-    batch_size = 128
-    num_epochs = args.num_epochs
-
     data_loader = DataLoader(
         dataset=dataset,
         sampler=None,  # no custom sampling logic (uniform sampling)
-        batch_size=batch_size,  # batches of size 100
+        batch_size=args.batch_size,  # batches of size 100
         shuffle=True,
         # shuffle=False,
         num_workers=0,
@@ -58,7 +54,6 @@ if __name__ == "__main__":
             input_size=(224, 224),
             input_channel=3,
             latent_dim=16,
-            activation=nn.ReLU,
             normalization=nn.BatchNorm2d,
             output_activation=nn.Sigmoid,
         ).to(device)
@@ -67,7 +62,6 @@ if __name__ == "__main__":
             input_size=(224, 224),
             input_channel=3,
             latent_dim=16,
-            activation=nn.ReLU,
             normalization=nn.BatchNorm2d,
             output_activation=nn.Sigmoid,
         ).to(device)
@@ -77,31 +71,19 @@ if __name__ == "__main__":
     print(model)
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
-    # ensure model is in train mode
-    for epoch in range(1, num_epochs + 1):  # epoch numbers start at 1
-        # iterator for data_loader - it yields batches
+    for epoch in range(1, args.num_epochs + 1):  # epoch numbers start at 1
         data_loader_iter = iter(data_loader)
-
-        # record losses
-
-        # load next batch from data loader
         try:
             batch = next(data_loader_iter)
         except StopIteration:
-            # data loader ran out of batches - reset and yield first batch
             data_loader_iter = iter(data_loader)
             batch = next(data_loader_iter)
 
-        # image = batch["obs"]["image"].to("cuda:0")
-        image =  TensorUtils.to_device(batch["obs"]["image"].to("cuda:0"), device)
-
-        # [B,T,H,W,C] -> [B*T,C,H,W]
-        batch_image = image.reshape(-1, *image.shape[2:]).permute(0, 3, 1, 2)
+        batch_image =  TensorUtils.to_device(batch["obs"]["image"], device)
+        batch_image = batch_image.reshape(-1, *batch_image.shape[2:]).permute(0, 3, 1, 2) # (B, C, H, W)
         batch_image = batch_image.contiguous().float() / 255.0
 
         loss_sum = 0
-
         loss_dict = model.loss(batch_image)
         for loss in loss_dict.values():
             loss_sum += loss
@@ -122,7 +104,6 @@ if __name__ == "__main__":
                     )
                 )
 
-
     # save model
     torch.save(model.state_dict(), args.model + "_model.pth")
     del model
@@ -139,36 +120,28 @@ if __name__ == "__main__":
         model = VariationalAutoEncoder(
             input_size=(224, 224),
             input_channel=3,
-            channels=[8, 16, 32, 64, 128, 256],
-            encoder_kernel_sizes=[3, 3, 3, 3, 3, 3],
-            decoder_kernel_sizes=[3, 4, 4, 4, 4, 4],
-            strides=[2, 2, 2, 2, 2, 2],
-            paddings=[1, 1, 1, 1, 1, 1],
             latent_dim=16,
-            activation=nn.ReLU,
-            dropouts=None,
             normalization=nn.BatchNorm2d,
             output_activation=nn.Sigmoid,
         ).to(device)
     else:
         raise ValueError("Invalid model type")
-
     model.load_state_dict(torch.load(args.model + "_model.pth"))
-
-    random_index = np.random.randint(0, len(dataset))
     model.eval()
+
+    # test
+    random_index = np.random.randint(0, len(dataset))
     test_image = dataset[random_index]["obs"]["image"]  # numpy ndarray [B,H,W,C]
     test_image_numpy = test_image.squeeze(0).astype(np.uint8)
-    test_image_tensor = (
-        torch.from_numpy(test_image).permute(0, 3, 1, 2).to("cuda:0").float()
-    ).contiguous() / 255.0
+    test_image_tensor = TensorUtils.to_device(TensorUtils.to_tensor(test_image), device)
+    test_image_tensor = test_image_tensor.permute(0, 3, 1, 2).float().contiguous() / 255.0
     with torch.no_grad():
         if args.model == "ae":
             x, z = model(test_image_tensor)
         elif args.model == "vae":
             x, z, mu, logvar = model(test_image_tensor)
 
-        test_image_recon = (x.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
+        test_image_recon = (TensorUtils.to_numpy(x.squeeze(0).permute(1, 2, 0)) * 255.0).astype(np.uint8)
         test_image_recon = cv2.cvtColor(test_image_recon, cv2.COLOR_RGB2BGR)
         test_image_numpy = cv2.cvtColor(test_image_numpy, cv2.COLOR_RGB2BGR)
         cv2.imshow("test_image", test_image_numpy)
@@ -176,5 +149,8 @@ if __name__ == "__main__":
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
+    with torch.no_grad():
+        embedding = model.nets["encoder"](test_image_tensor)
+        print(embedding[0].shape)
 
     del dataset

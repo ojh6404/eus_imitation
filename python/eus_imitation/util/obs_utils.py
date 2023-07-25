@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 import eus_imitation.util.tensor_utils as TensorUtils
-from eus_imitation.base.base_nets import MLP, AutoEncoder
+from eus_imitation.base.base_nets import *
 
 from typing import Union, List, Tuple, Dict, Any, Optional
 
@@ -139,6 +139,14 @@ class ModalityEncoderBase(nn.Module):
     # nets: Union[nn.ModuleDict, nn.ModuleList] = None
 
 
+# function that gets first element inputs like (0, 1, 2) or (0,1) or (0,(1,2)) or 0
+# and returns 0
+def get_first_element(inputs):
+    if isinstance(inputs, tuple):
+        return get_first_element(inputs[0])
+    else:
+        return inputs
+
 class ImageModalityEncoder(ModalityEncoderBase):
     def __init__(self, cfg: Dict, obs_name: str) -> None:
         super(ImageModalityEncoder, self).__init__()
@@ -147,7 +155,13 @@ class ImageModalityEncoder(ModalityEncoderBase):
         self.pretrained = cfg.pretrained
         self.input_dim = cfg.input_dim
         self.output_dim = cfg.output_dim
-        has_decoder = cfg.has_decoder
+        self.has_decoder = cfg.has_decoder
+        self.encoder_model = cfg.model
+
+        # self.model = eval(cfg.type)(**cfg_dict)
+        self.model = eval(self.encoder_model)()
+        if self.pretrained:
+            self.model.load_state_dict(torch.load(cfg.model_path))
 
         self.modality = ImageModality(obs_name)
         self.normalize = cfg.get("normalize", False)
@@ -156,17 +170,10 @@ class ImageModalityEncoder(ModalityEncoderBase):
         else:
             self.modality.set_scaler(mean=0.0, std=1.0)
 
-        autoencoder = AutoEncoder(  # for test
-            input_size=[224, 224],
-            input_channel=3,
-            latent_dim=16,
-            normalization=nn.BatchNorm2d,
-        )
-
         self.nets = nn.ModuleDict()
-        self.nets["encoder"] = autoencoder.encoder
-        if has_decoder:
-            self.nets["decoder"] = autoencoder.decoder
+        self.nets["encoder"] = self.model.nets["encoder"]
+        if self.has_decoder:
+            self.nets["decoder"] = self.model.nets["decoder"]
 
     def forward(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
@@ -181,7 +188,8 @@ class ImageModalityEncoder(ModalityEncoderBase):
         else:  # len(obs.shape) == 3
             height, width, channel = obs.shape
         processed_obs = self.modality.process_obs(obs)
-        latent = self.nets["encoder"](processed_obs)
+
+        latent, _, _ = self.nets["encoder"](processed_obs)
         if len(obs.shape) == 5:
             latent = latent.view(batch_size, seq_len, -1)  # (B, T, D)
         elif len(obs.shape) == 4:

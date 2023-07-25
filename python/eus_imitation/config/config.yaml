@@ -4,6 +4,20 @@ control:
   joints: ["test"]
   # # conrol_type: collector
 
+train:
+  lr: 1e-4
+  lr_scheduler: True
+  optimizer: "Adam"
+  batch_size: 128
+  seq_length: 10 # equal to rnn seq_length if RNNActor
+  weight:
+    l1: 0.0
+    l2: 1.0
+
+
+
+
+
 actor:
   policy:
     type: "RNNActor"
@@ -11,6 +25,7 @@ actor:
       type: "LSTM"
       rnn_num_layers: 2
       rnn_hidden_dim: 400
+      seq_length: 10
     mlp_layer_dims: [128, 128, 128]
     mlp_activation: "ReLU"
   obs: # input into policy
@@ -20,10 +35,12 @@ actor:
       msg_type: "CompressedImage"
       obs_encoder:
         normalize: True
-        pretrained: False
+        model: "VariationalAutoEncoder"
+        model_path: "./vae_model.pth"
+        pretrained: True
         input_dim: [224, 224, 3]
         output_dim: 16
-        has_decoder: False
+        has_decoder: True
     robot_ee_pos:
       modality: "FloatVectorModality"
       topic_name: "/eus_imitation/robot_state"

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 #
 
+import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -102,6 +103,29 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            batch_image =  TensorUtils.to_device(batch["obs"]["image"], "cuda:0")
+            batch_image = batch_image.reshape(-1, *batch_image.shape[2:]).permute(0, 3, 1, 2) # (B, C, H, W)
+            batch_image = batch_image.contiguous().float() / 255.0
+
+            vae_encoder = model.nets["obs_encoder"].nets["image"].nets["encoder"]
+            vae_decoder = model.nets["obs_encoder"].nets["image"].nets["decoder"]
+
+            with torch.no_grad():
+                latent, _, _ = vae_encoder(batch_image)
+                recon = vae_decoder(latent)
+                recon_image = recon.reshape(-1, *batch_image.shape[1:]).permute(0, 2, 3, 1) # (B, H, W, C)
+                recon_image = (recon_image * 255.0).byte().cpu().numpy()
+
+                # visualize
+                for i in range(0, batch_image.shape[0], 10):
+                    import cv2
+                    cv2.imshow("original", batch_image[i].permute(1, 2, 0).cpu().numpy())
+                    cv2.imshow("recon", recon_image[i])
+                    cv2.waitKey(0)
+
+
+            input("press enter to continue")
 
         print("epoch: {}, loss: {}".format(epoch, loss.item()))
 

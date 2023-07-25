@@ -51,6 +51,7 @@ def calculate_deconv_output_size(
         ) * strides[i] - 2 * paddings[i] + kernel_sizes[i] + output_paddings[i]
     return output_size
 
+
 class Reshape(nn.Module):
     """
     Module that reshapes a tensor.
@@ -276,14 +277,15 @@ class Conv(nn.Module):
                     **layer_kwargs,
                 )
             )
-            if normalization is not None:
+            if normalization is not None and i != len(channels) - 1: # not the last layer
                 layers.append(normalization(out_channels))
-            layers.append(activation())
+            if i != len(channels) - 1: # not the last layer
+                layers.append(activation())
             if dropouts is not None:
                 layers.append(nn.Dropout(dropouts[i]))
 
         if output_activation is not None:
-            layers.append(output_activation)
+            layers.append(output_activation())
 
         self.net = nn.Sequential(*layers)
 
@@ -304,7 +306,6 @@ class VisionModule(nn.Module):
     #     raise NotImplementedError
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        # inputs = self.preprocess(inputs)
         return self.net(inputs)
 
 class ConvEncoder(VisionModule):
@@ -334,7 +335,8 @@ class ConvEncoder(VisionModule):
         self.mean_var = mean_var
         self.output_activation = output_activation if output_activation is not None else lambda x: x
 
-        self.encoder_conv = Conv(
+        self.nets = nn.ModuleDict()
+        self.nets["conv"] = Conv(
             input_channel=input_channel,
             channels=channels,
             kernel_sizes=kernel_sizes,
@@ -346,13 +348,10 @@ class ConvEncoder(VisionModule):
             normalization=normalization,
             output_activation=None,
         )
-
-        self.encoder_reshape = Reshape(
-            (-1, channels[-1] * output_conv_size[0] * output_conv_size[1])
-        )
+        self.nets["reshape"] = Reshape((-1, channels[-1] * output_conv_size[0] * output_conv_size[1]))
 
         if mean_var:
-            self.encoder_mlp_mu = MLP(
+            self.nets["mlp_mu"] = MLP(
                 input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
                 output_dim=latent_dim,
                 layer_dims=[latent_dim * 4, latent_dim * 2],
@@ -362,7 +361,7 @@ class ConvEncoder(VisionModule):
                 if normalization is not None
                 else normalization,
             )
-            self.encoder_mlp_logvar = MLP(
+            self.nets["mlp_logvar"] = MLP(
                 input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
                 output_dim=latent_dim,
                 layer_dims=[latent_dim * 4, latent_dim * 2],
@@ -373,7 +372,7 @@ class ConvEncoder(VisionModule):
                 else normalization,
             )
         else:
-            self.encoder_mlp = MLP(
+            self.nets["mlp"] = MLP(
                 input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
                 output_dim=latent_dim,
                 layer_dims=[latent_dim * 4, latent_dim * 2],
@@ -384,16 +383,23 @@ class ConvEncoder(VisionModule):
                 else normalization,
             )
 
+    def reparametrize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + std * eps
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.encoder_conv(x)
-        x = self.encoder_reshape(x)
+        x = self.nets["conv"](x)
+        x = self.nets["reshape"](x)
         if self.mean_var:
-            mu = self.output_activation(self.encoder_mlp_mu(x))
-            logvar = self.output_activation(self.encoder_mlp_logvar(x))
-            return mu, logvar
+            mu = self.output_activation(self.nets["mlp_mu"](x))
+            logvar = self.output_activation(self.nets["mlp_logvar"](x))
+            z = self.reparametrize(mu, logvar)
+            return z, mu, logvar
         else:
-            z = self.output_activation(self.encoder_mlp(x))
+            z = self.output_activation(self.nets["mlp"](x))
             return z
+
 
 
 
@@ -416,7 +422,8 @@ class ConvDecoder(VisionModule):
 
         self.output_activation = output_activation if output_activation is not None else lambda x: x
 
-        self.decoder_mlp = MLP(
+        self.nets = nn.ModuleDict()
+        self.nets["mlp"] = MLP(
             input_dim=latent_dim,
             output_dim=channels[0] * input_conv_size[0] * input_conv_size[1],
             layer_dims=[latent_dim * 2, latent_dim * 4],
@@ -426,7 +433,7 @@ class ConvDecoder(VisionModule):
             if normalization is not None
             else normalization,
         )
-        self.decoder_conv = Conv(
+        self.nets["deconv"] = Conv(
             input_channel=channels[0],
             channels=channels[1:] + [output_channel],
             kernel_sizes=kernel_sizes,
@@ -436,19 +443,17 @@ class ConvDecoder(VisionModule):
             activation=activation,
             dropouts=dropouts,
             normalization=normalization,
-            output_activation=None,
+            output_activation=output_activation,
         )
-
-        self.decoder_reshape = Reshape(
+        self.nets["reshape"] = Reshape(
             (-1, channels[0], input_conv_size[0], input_conv_size[1])
         )
 
-
     def forward(self, z: torch.Tensor) -> torch.Tensor:
-        x = self.decoder_mlp(z)
-        x = self.decoder_reshape(x)
-        x = self.decoder_conv(x)
-        return self.output_activation(x)
+        x = self.nets["mlp"](z)
+        x = self.nets["reshape"](x)
+        x = self.nets["deconv"](x)
+        return x
 
 
 class AutoEncoder(VisionModule):
@@ -468,7 +473,7 @@ class AutoEncoder(VisionModule):
         latent_dim: int = 16,
         activation: nn.Module = nn.ReLU,
         dropouts: Optional[List[float]] = None,
-        normalization=None,
+        normalization= nn.BatchNorm2d,
         output_activation: Optional[nn.Module] = nn.Sigmoid,
     ) -> None:
         super(AutoEncoder, self).__init__()
@@ -489,7 +494,8 @@ class AutoEncoder(VisionModule):
             paddings=paddings,
         )
 
-        self.encoder = ConvEncoder(
+        self.nets = nn.ModuleDict()
+        self.nets["encoder"] = ConvEncoder(
             input_size=input_size,
             input_channel=input_channel,
             channels=channels,
@@ -504,7 +510,7 @@ class AutoEncoder(VisionModule):
             output_activation=None,
         )
 
-        self.decoder = ConvDecoder(
+        self.nets["decoder"] = ConvDecoder(
             input_conv_size=output_conv_size,
             output_channel=input_channel,
             channels=list(reversed(channels)),
@@ -520,8 +526,8 @@ class AutoEncoder(VisionModule):
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        z = self.encoder(x)
-        x = self.decoder(z)
+        z = self.nets["encoder"](x)
+        x = self.nets["decoder"](z)
         return x, z
 
     def loss(self, x: torch.Tensor) -> torch.Tensor:
@@ -530,6 +536,7 @@ class AutoEncoder(VisionModule):
         reconstruction_loss = nn.MSELoss()(x_hat, x)
         loss_dict["reconstruction_loss"] = reconstruction_loss
         return loss_dict
+
 
 
 
@@ -546,7 +553,7 @@ class VariationalAutoEncoder(VisionModule):
         latent_dim: int = 16,
         activation: nn.Module = nn.ReLU,
         dropouts: Optional[List[float]] = None,
-        normalization=None,
+        normalization=nn.BatchNorm2d,
         output_activation: Optional[nn.Module] = nn.Sigmoid,
     ) -> None:
         super(VariationalAutoEncoder, self).__init__()
@@ -565,7 +572,8 @@ class VariationalAutoEncoder(VisionModule):
             paddings=paddings,
         )
 
-        self.encoder = ConvEncoder(
+        self.nets = nn.ModuleDict()
+        self.nets["encoder"] = ConvEncoder(
             input_size=input_size,
             input_channel=input_channel,
             channels=channels,
@@ -580,7 +588,7 @@ class VariationalAutoEncoder(VisionModule):
             output_activation=None,
         )
 
-        self.decoder = ConvDecoder(
+        self.nets["decoder"] = ConvDecoder(
             input_conv_size=output_conv_size,
             output_channel=input_channel,
             channels=list(reversed(channels)),
@@ -594,26 +602,11 @@ class VariationalAutoEncoder(VisionModule):
             output_activation=output_activation,
         )
 
-    def reparametrize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + std * eps
-
-    def encode(
-        self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        mu, logvar = self.encoder(x)
-        z = self.reparametrize(mu, logvar)
-        return z, mu, logvar
-
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        return self.decoder(z)
-
     def forward(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        z, mu, logvar = self.encode(x)
-        x = self.decode(z)
+        z, mu, logvar = self.nets["encoder"](x)
+        x = self.nets["decoder"](z)
         return x, z, mu, logvar
 
     def kld_loss(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:

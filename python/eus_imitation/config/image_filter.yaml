@@ -1,8 +1,8 @@
 CropResizer:
-  x_max: 420
-  x_min: 187
-  y_max: 534
-  y_min: 107
+  x_max: 425
+  x_min: 186
+  y_max: 546
+  y_min: 97
 GaussianBlurFilter:
   kernel_width: 0
 HSVLogicalFilter:
