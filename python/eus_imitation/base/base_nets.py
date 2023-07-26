@@ -15,7 +15,6 @@ from torchvision import models as vision_models
 import eus_imitation.util.tensor_utils as TensorUtils
 
 
-
 def calculate_conv_output_size(
     input_size: List[int],
     kernel_sizes: List[int],
@@ -33,6 +32,7 @@ def calculate_conv_output_size(
         ) // strides[i] + 1
     return output_size
 
+
 def calculate_deconv_output_size(
     input_size: List[int],
     kernel_sizes: List[int],
@@ -44,11 +44,17 @@ def calculate_deconv_output_size(
     output_size = list(input_size)
     for i in range(len(kernel_sizes)):
         output_size[0] = (
-            output_size[0] - 1
-        ) * strides[i] - 2 * paddings[i] + kernel_sizes[i] + output_paddings[i]
+            (output_size[0] - 1) * strides[i]
+            - 2 * paddings[i]
+            + kernel_sizes[i]
+            + output_paddings[i]
+        )
         output_size[1] = (
-            output_size[1] - 1
-        ) * strides[i] - 2 * paddings[i] + kernel_sizes[i] + output_paddings[i]
+            (output_size[1] - 1) * strides[i]
+            - 2 * paddings[i]
+            + kernel_sizes[i]
+            + output_paddings[i]
+        )
     return output_size
 
 
@@ -57,12 +63,25 @@ class Reshape(nn.Module):
     Module that reshapes a tensor.
     """
 
-    def __init__(self, shape: Union[int, Tuple[int, ...]]):
+    def __init__(self, shape: Union[int, Tuple[int, ...]]) -> None:
         super(Reshape, self).__init__()
         self._shape = shape
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.view(self._shape)
+
+
+class Permute(nn.Module):
+    """
+    Module that permutes a tensor.
+    """
+
+    def __init__(self, dims: Union[List[int], Tuple[int, ...]]) -> None:
+        super(Permute, self).__init__()
+        self._dims = dims
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.permute(self._dims)
 
 
 class Unsqueeze(nn.Module):
@@ -89,6 +108,123 @@ class Squeeze(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.squeeze(dim=self._dim)
+
+
+class SoftPositionEmbed(nn.Module):
+    """
+    Module that adds soft positional embeddings to a tensor.
+    """
+
+    def __init__(
+        self, hidden_dim: int, resolution: Union[Tuple[int, int], List[int]]
+    ) -> None:
+        super(SoftPositionEmbed, self).__init__()
+        self._hidden_dim = hidden_dim
+        self._resolution = resolution
+        self._embedding = nn.Linear(4, hidden_dim)
+        self._grid = self.build_grid(resolution)  # device?
+
+    def build_grid(self, resolution: Union[Tuple[int, int], List[int]]) -> torch.Tensor:
+        ranges = [np.linspace(0.0, 1.0, num=res) for res in resolution]
+        grid = np.meshgrid(*ranges, sparse=False, indexing="ij")
+        grid = np.stack(grid, axis=-1)
+        grid = np.reshape(grid, [resolution[0], resolution[1], -1])
+        grid = np.expand_dims(grid, axis=0)
+        grid = grid.astype(np.float32)
+        return TensorUtils.to_tensor(np.concatenate([grid, 1.0 - grid], axis=-1)).to(
+            "cuda:0"
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        grid = self._embedding(self._grid)
+        return x + grid
+
+
+class SlotAttention(nn.Module):
+    """
+    Module that performs slot attention.
+    ref : https://github.com/lucidrains/slot-attention
+    """
+
+    def __init__(
+        self,
+        num_slots: int = 7,
+        dim: int = 64,
+        num_iters: int = 3,
+        eps: float = 1e-8,
+        hidden_dim: int = 128,
+    ) -> None:
+        super(SlotAttention, self).__init__()
+        self._num_slots = num_slots
+        self._num_iters = num_iters
+        self._eps = eps
+        self._scale = dim**-0.5
+        hidden_dim = max(dim, hidden_dim)
+
+        self.slots_mu = nn.Parameter(torch.randn(1, 1, dim))
+        self.slots_log_sigma = nn.Parameter(torch.zeros(1, 1, dim))
+        nn.init.xavier_uniform_(self.slots_log_sigma)
+
+        self.to_q = nn.Linear(dim, dim)
+        self.to_k = nn.Linear(dim, dim)
+        self.to_v = nn.Linear(dim, dim)
+
+        self.gru = nn.GRUCell(dim, dim)
+        self.mlp = MLP(
+            input_dim=dim,
+            output_dim=dim,
+            layer_dims=[hidden_dim],
+            activation=nn.ReLU,
+        )
+
+        self.norm_input = nn.LayerNorm(dim)
+        self.norm_slots = nn.LayerNorm(dim)
+        self.norm_mlp = nn.LayerNorm(dim)
+
+    # def step(self, slots, k, v):
+    #     q = self.to_q(self.norm_slots(slots))
+    #     k = k * self._scale
+    #     attn = F.softmax(torch.einsum("bkd,bqd->bkq", k, q), dim=-1)
+    #     attn = attn / torch.sum(attn + self._eps, dim=-2, keepdim=True)
+    #     updates = torch.einsum("bvq,bvd->bqd", attn, v)
+    #     slots = self.gru(updates, slots)
+    #     slots = slots + self.mlp(self.norm_mlp(slots))
+    #     return slots
+
+    # def iterate(self, f, x):
+    #     for _ in range(self._num_iters):
+    #         x = f(x)
+    #     return x
+
+    # def forward(self, inputs, slots):
+    #     inputs = self.norm_input(inputs)
+    #     k, v = self.to_k(inputs), self.to_v(inputs)
+    #     slots = self.iterate(lambda x: self.step(x, k, v), slots)
+    #     slots = self.step(slots.detach(), k, v)
+    #     return slots
+
+    def forward(self, inputs, num_slots=None):
+        b, n, d, device, dtype = *inputs.shape, inputs.device, inputs.dtype
+        n_s = num_slots if num_slots is not None else self._num_slots
+        mu = self.slots_mu.expand(b, n_s, -1)
+        sigma = self.slots_log_sigma.exp().expand(b, n_s, -1)
+        slots = mu + sigma * torch.randn(mu.shape, device=device, dtype=dtype)
+        inputs = self.norm_input(inputs)
+        k, v = self.to_k(inputs), self.to_v(inputs)
+        for _ in range(self._num_iters):
+            slots_prev = slots
+            slots = self.norm_slots(slots)
+            q = self.to_q(slots)
+            dots = torch.einsum("bid,bjd->bij", q, k) * self._scale
+            attn = dots.softmax(dim=1) + self._eps
+            attn = attn / attn.sum(dim=-1, keepdim=True)
+            updates = torch.einsum("bjd,bij->bid", v, attn)
+            slots = self.gru(updates.reshape(-1, d), slots_prev.reshape(-1, d))
+            # slots = slots.reshape(b, -1, d)
+            slots = slots.view(b, -1, d)
+            slots = slots + self.mlp(self.norm_mlp(slots))
+
+        return slots
 
 
 class MLP(nn.Module):
@@ -210,7 +346,7 @@ class RNN(nn.Module):
         #     # outputs = outputs.reshape(batch_size, seq_len, -1)
         #     return outputs
 
-        assert inputs.ndim == 3 # (batch_size, seq_len, input_dim)
+        assert inputs.ndim == 3  # (batch_size, seq_len, input_dim)
         batch_size, _, _ = inputs.shape
         if rnn_state is None:
             rnn_state = self.get_rnn_init_state(batch_size, inputs.device)
@@ -277,9 +413,11 @@ class Conv(nn.Module):
                     **layer_kwargs,
                 )
             )
-            if normalization is not None and i != len(channels) - 1: # not the last layer
+            if (
+                normalization is not None and i != len(channels) - 1
+            ):  # not the last layer
                 layers.append(normalization(out_channels))
-            if i != len(channels) - 1: # not the last layer
+            if i != len(channels) - 1:  # not the last layer
                 layers.append(activation())
             if dropouts is not None:
                 layers.append(nn.Dropout(dropouts[i]))
@@ -308,6 +446,7 @@ class VisionModule(nn.Module):
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.net(inputs)
 
+
 class ConvEncoder(VisionModule):
     def __init__(
         self,
@@ -333,7 +472,9 @@ class ConvEncoder(VisionModule):
         )
 
         self.mean_var = mean_var
-        self.output_activation = output_activation if output_activation is not None else lambda x: x
+        self.output_activation = (
+            output_activation if output_activation is not None else lambda x: x
+        )
 
         self.nets = nn.ModuleDict()
         self.nets["conv"] = Conv(
@@ -348,7 +489,9 @@ class ConvEncoder(VisionModule):
             normalization=normalization,
             output_activation=None,
         )
-        self.nets["reshape"] = Reshape((-1, channels[-1] * output_conv_size[0] * output_conv_size[1]))
+        self.nets["reshape"] = Reshape(
+            (-1, channels[-1] * output_conv_size[0] * output_conv_size[1])
+        )
 
         if mean_var:
             self.nets["mlp_mu"] = MLP(
@@ -401,8 +544,6 @@ class ConvEncoder(VisionModule):
             return z
 
 
-
-
 class ConvDecoder(VisionModule):
     def __init__(
         self,
@@ -420,7 +561,9 @@ class ConvDecoder(VisionModule):
     ) -> None:
         super(ConvDecoder, self).__init__()
 
-        self.output_activation = output_activation if output_activation is not None else lambda x: x
+        self.output_activation = (
+            output_activation if output_activation is not None else lambda x: x
+        )
 
         self.nets = nn.ModuleDict()
         self.nets["mlp"] = MLP(
@@ -473,7 +616,7 @@ class AutoEncoder(VisionModule):
         latent_dim: int = 16,
         activation: nn.Module = nn.ReLU,
         dropouts: Optional[List[float]] = None,
-        normalization= nn.BatchNorm2d,
+        normalization=nn.BatchNorm2d,
         output_activation: Optional[nn.Module] = nn.Sigmoid,
     ) -> None:
         super(AutoEncoder, self).__init__()
@@ -485,7 +628,6 @@ class AutoEncoder(VisionModule):
             == len(paddings)
             == len(decoder_kernel_sizes)
         )
-
 
         output_conv_size = calculate_conv_output_size(
             input_size=input_size,  # TODO: input size
@@ -524,7 +666,6 @@ class AutoEncoder(VisionModule):
             output_activation=output_activation,
         )
 
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         z = self.nets["encoder"](x)
         x = self.nets["decoder"](z)
@@ -536,8 +677,6 @@ class AutoEncoder(VisionModule):
         reconstruction_loss = nn.MSELoss()(x_hat, x)
         loss_dict["reconstruction_loss"] = reconstruction_loss
         return loss_dict
-
-
 
 
 class VariationalAutoEncoder(VisionModule):
@@ -612,7 +751,7 @@ class VariationalAutoEncoder(VisionModule):
     def kld_loss(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         # kld_weight = 1e-1 / torch.prod(torch.Tensor(mu.shape)) # TODO
         batch_size = mu.size(0)
-        kld_weight = 1e-1 * mu.size(1) / (224 * 224 * 3 * batch_size) # TODO
+        kld_weight = 1e-1 * mu.size(1) / (224 * 224 * 3 * batch_size)  # TODO
         kl_loss = (
             torch.mean(
                 -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1),
@@ -622,7 +761,7 @@ class VariationalAutoEncoder(VisionModule):
         )
         return kl_loss
 
-    def loss(self, x : torch.Tensor) -> Dict[str, torch.Tensor]:
+    def loss(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         loss_dict = dict()
         x_hat, z, mu, logvar = self.forward(x)
         reconstruction_loss = nn.MSELoss()(x_hat, x)
@@ -630,6 +769,216 @@ class VariationalAutoEncoder(VisionModule):
         loss_dict["reconstruction_loss"] = reconstruction_loss
         loss_dict["kld_loss"] = kld_loss
         return loss_dict
+
+
+class SlotAttentionEncoder(VisionModule):
+    """
+    Slot Attention Encoder
+    """
+
+    def __init__(
+        self,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [64, 64, 64, 64, 64, 64],
+        kernel_sizes: List[int] = [5, 5, 5, 5, 5, 5],
+        strides: List[int] = [1, 1, 1, 1, 1, 1],
+        paddings: List[int] = [2, 2, 2, 2, 2, 2],
+        num_iters: int = 3,
+        eps: float = 1e-8,
+        hidden_dim: int = 64,
+        mlp_hidden_dim: int = 128,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = nn.ReLU,
+        num_slots: int = 7,
+    ) -> None:
+        super(SlotAttentionEncoder, self).__init__()
+
+        self.nets = nn.ModuleDict()
+
+        self.nets["conv"] = Conv(
+            input_channel=input_channel,
+            channels=channels,
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=output_activation,
+        )
+
+        self.nets["slot_attention"] = SlotAttention(
+            num_slots=num_slots,
+            dim=hidden_dim,
+            num_iters=num_iters,
+            eps=eps,
+            hidden_dim=mlp_hidden_dim,
+        )
+
+        self.nets["pos_encoder"] = SoftPositionEmbed(
+            hidden_dim=hidden_dim, resolution=input_size
+        )
+
+        self.nets["layer_norm"] = nn.LayerNorm(hidden_dim)
+        self.nets["permute"] = Permute([0, 2, 3, 1])
+        # self.nets["reshape"] = Reshape([-1, inputs_size[0] * inputs_size[1], hid_dim])
+
+        self.nets["mlp_encoder"] = MLP(
+            input_dim=hidden_dim,
+            output_dim=hidden_dim,
+            layer_dims=[hidden_dim],
+            activation=activation,
+            dropouts=dropouts,
+            normalization=None,
+            output_activation=None,
+        )
+
+    def forward(
+        self, x: torch.Tensor, vectorized_slot_feature: bool = False
+    ) -> torch.Tensor:
+        x = self.nets["conv"](x)  # [B, 64, 128, 128]
+        x = self.nets["permute"](x)  # [B, 128, 128, 64]
+        x = self.nets["pos_encoder"](x)  # [B, 128, 128, 64]
+        x = x.view(x.shape[0], -1, x.shape[-1])  # [B, 128*128, 64]
+        x = self.nets["layer_norm"](x)
+        x = self.nets["mlp_encoder"](x)
+        if vectorized_slot_feature:
+            x = self.nets["slot_attention"](x).view(x.shape[0], -1)
+        else:
+            x = self.nets["slot_attention"](x)
+        return x
+
+
+class SlotDecoder(nn.Module):
+    def __init__(self, hid_dim, resolution):
+        super().__init__()
+        self.decoder_initial_size = (8, 8)
+        self.decoder_pos = SoftPositionEmbed(hid_dim, self.decoder_initial_size)
+
+        self.conv1 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=2)
+        self.conv2 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=1)
+        self.conv3 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=1)
+        self.conv4 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=1)
+        self.conv5 = nn.ConvTranspose2d(hid_dim, 4, 4, stride=(2, 2), padding=1)
+
+        self.resolution = resolution
+
+    def forward(self, x):
+        x = self.decoder_pos(x)  # [-1, 8, 8, slot_dim]
+        x = x.permute(0, 3, 1, 2)  # [-1, slot_dim, 8, 8]
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = self.conv3(x)
+        x = F.relu(x)
+        x = self.conv4(x)
+        x = F.relu(x)
+        x = self.conv5(x)
+        x = x.permute(0, 2, 3, 1)  # [B, 128, 128, 4]
+        return x
+
+
+class SlotAttentionDecoder(VisionModule):
+    """
+    Slot Attention Encoder
+    """
+
+    def __init__(
+        self,
+        input_size: List[int] = [128, 128],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        mean_var: bool = False,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = None,
+        num_slots: int = 7,
+    ) -> None:
+        super(SlotAttentionDecoder, self).__init__()
+        hid_dim = 64
+
+        self.nets = nn.ModuleDict()
+
+        self.decoder_cnn = SlotDecoder(hid_dim, input_size)
+
+        self.nets["layer_norm"] = nn.LayerNorm(hid_dim)
+
+        self.nets["mlp_encoder"] = MLP(
+            input_dim=hid_dim,
+            output_dim=hid_dim,
+            layer_dims=[hid_dim],
+            activation=activation,
+            dropouts=None,
+            normalization=None,
+            output_activation=None,
+        )
+
+    def forward(self, slots: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+        batch_size = slots.shape[0]
+        # slots [B, num_slots, slot_dim]
+        # slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
+        slots = slots.view((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
+        slots = slots.repeat((1, 8, 8, 1))
+
+        # `slots` has shape: [batch_size*num_slots, width_init, height_init, slot_size].
+        x = self.decoder_cnn(slots)
+        # `x` has shape: [batch_size*num_slots, width, height, num_channels+1].
+
+        # Undo combination of slot and batch dimension; split alpha masks.
+        recons, masks = x.view(
+            batch_size, -1, x.shape[1], x.shape[2], x.shape[3]
+        ).split([3, 1], dim=-1)
+        # `recons` has shape: [batch_size, num_slots, width, height, num_channels].
+        # `masks` has shape: [batch_size, num_slots, width, height, 1].
+
+        # Normalize alpha masks over slots.
+        masks = nn.Softmax(dim=1)(masks)
+        recon_combined = torch.sum(recons * masks, dim=1)  # Recombine image.
+        recon_combined = recon_combined.permute(0, 3, 1, 2)
+        # `recon_combined` has shape: [batch_size, width, height, num_channels].
+
+        return recon_combined, recons, masks, slots
+
+
+class SlotAttentionAutoEncoder(VisionModule):
+    """
+    Slot Attention AutoEncoder
+    """
+
+    def __init__(
+        self,
+        input_size: List[int] = [128, 128],  # [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [64, 64, 64, 64],
+        encoder_kernel_sizes: List[int] = [5, 5, 5, 5],
+        decoder_kernel_sizes: List[int] = [3, 4, 4, 4],
+        strides: List[int] = [1, 1, 1, 1],
+        paddings: List[int] = [2, 2, 2, 2],
+        latent_dim: int = 16,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=nn.BatchNorm2d,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
+    ) -> None:
+        super(SlotAttentionAutoEncoder, self).__init__()
+
+        self.nets = nn.ModuleDict()
+        self.nets["encoder"] = SlotAttentionEncoder()
+        self.nets["decoder"] = SlotAttentionDecoder()
+
+    def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+        x = self.nets["encoder"](x)
+        x = self.nets["decoder"](x)
+        return x
 
 
 class R3M(VisionModule):
@@ -745,39 +1094,28 @@ class MVP(VisionModule):
 
 
 if __name__ == "__main__":
-    test_image_input = torch.randn(5, 3, 224, 224)
-    test_autoencoder = AutoEncoder(
-        input_size=test_image_input.shape[2:],
-        input_channel=3,
-        channels=[8, 16, 32, 64, 128, 256],
-        encoder_kernel_sizes=[3, 3, 3, 3, 3, 3],
-        decoder_kernel_sizes=[3, 4, 4, 4, 4, 4],
-        strides=[2, 2, 2, 2, 2, 2],
-        paddings=[1, 1, 1, 1, 1, 1],
-        latent_dim=16,
-        activation=nn.ReLU,
-        dropouts=None,
-        normalization=nn.BatchNorm2d,
-        output_activation=None,
-    )
+    # slot_attention_autoencoder = SlotAttentionAutoEncoder(dict())
 
-    x, z = test_autoencoder(test_image_input)
-    print(x.shape, z.shape)
-    test_vae = VariationalAutoEncoder(
-        input_size=test_image_input.shape[2:],
-        input_channel=3,
-        channels=[8, 16, 32, 64, 128, 256],
-        encoder_kernel_sizes=[3, 3, 3, 3, 3, 3],
-        decoder_kernel_sizes=[3, 4, 4, 4, 4, 4],
-        strides=[2, 2, 2, 2, 2, 2],
-        paddings=[1, 1, 1, 1, 1, 1],
-        latent_dim=16,
-        activation=nn.ReLU,
-        dropouts=None,
-        normalization=nn.BatchNorm2d,
-        output_activation=None,
-    )
+    test_inputs = torch.randn(16, 3, 128, 128)
 
-    test_image_input = torch.randn(5, 3, 224, 224)
-    x, z, mu, logvar = test_vae(test_image_input)
-    print(x.shape, z.shape, mu.shape, logvar.shape)
+    slot_attention_encoder = SlotAttentionEncoder()
+    slot_attention_decoder = SlotAttentionDecoder()
+
+    test_outputs = slot_attention_encoder(test_inputs)
+    test_outputs = slot_attention_decoder(test_outputs)
+
+    for tensor in test_outputs:
+        print(tensor.shape)
+
+    from torchviz import make_dot
+
+    INPUT_SIZE = 28 * 28
+
+    model = NeuralNet()
+    data = torch.randn(1, INPUT_SIZE)
+
+    y = model(data)
+
+    image = make_dot(y, params=dict(model.named_parameters()))
+    image.format = "png"
+    image.render("NeuralNet")
