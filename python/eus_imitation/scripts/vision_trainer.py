@@ -53,6 +53,7 @@ if __name__ == "__main__":
         num_workers=0,
         drop_last=True,  # don't provide last batch in dataset pass if it's less than 100 in size
     )
+
     if args.model == "ae":
         model = AutoEncoder(
             input_size=(224, 224),

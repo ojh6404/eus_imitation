@@ -145,6 +145,7 @@ def to_tensor(x):
         {
             torch.Tensor: lambda x: x,
             np.ndarray: lambda x: torch.from_numpy(x),
+            float: lambda x: torch.tensor(x),
             type(None): lambda x: x,
         },
     )

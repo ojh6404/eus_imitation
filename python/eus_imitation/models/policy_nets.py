@@ -19,7 +19,7 @@ from torchvision import transforms
 
 from eus_imitation.models.base_nets import MLP, RNN
 import eus_imitation.utils.tensor_utils as TensorUtils
-from eus_imitation.utils.obs_utils import ObservationEncoder
+from eus_imitation.utils.obs_utils import ObservationEncoder, ImageModality, FloatVectorModality
 
 
 """
@@ -94,6 +94,9 @@ class RNNActor(Actor):
         )
         self.rnn_kwargs = cfg.policy.rnn.get("kwargs", {})
         self.action_dim = cfg.actions.dim
+        self.action_modality = eval(cfg.actions.modality)
+
+        self.normalize_cfg = edict(yaml.safe_load(open("./config/normalize.yaml", "r")))
 
         self.mlp_layer_dims = cfg.policy.mlp_layer_dims
         self.mlp_activation = eval("nn." + cfg.policy.get("mlp_activation", "ReLU"))
@@ -101,6 +104,8 @@ class RNNActor(Actor):
         self.nets = nn.ModuleDict()
 
         self._build_network()
+
+
 
     def _build_network(self) -> None:
         """
@@ -122,11 +127,6 @@ class RNNActor(Actor):
             rnn_kwargs=self.rnn_kwargs,
             per_step_net=self.nets["mlp_decoder"],
         )
-
-        # self.policy_nets = nn.Sequential(
-        #     self.nets["obs_encoder"],
-        #     self.nets["rnn"],
-        # )
 
     def get_rnn_init_state(self, batch_size: int, device: torch.device) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         return self.nets["rnn"].get_rnn_init_state(batch_size, device)

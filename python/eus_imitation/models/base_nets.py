@@ -83,6 +83,40 @@ class Permute(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.permute(self._dims)
 
+class Normalize(nn.Module):
+    """
+    Module that Normalize a tensor with mean and std.
+    """
+
+    def __init__(self, mean: Union[float, List[float], np.ndarray, torch.Tensor], std: Union[float, List[float], np.ndarray, torch.Tensor]) -> None:
+        super(Normalize, self).__init__()
+        # requires_grad = False
+        self._mean = TensorUtils.to_float(TensorUtils.to_tensor(mean))
+        self._std = TensorUtils.to_float(TensorUtils.to_tensor(std))
+
+        self.register_buffer("mean", self._mean)
+        self.register_buffer("std", self._std)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self.mean) / self.std
+
+class Unnormalize(nn.Module):
+    """
+    Module that Unnormalize a tensor with mean and std.
+    """
+
+    def __init__(self, mean: Union[float, List[float], np.ndarray, torch.Tensor], std: Union[float, List[float], np.ndarray, torch.Tensor]) -> None:
+        super(Unnormalize, self).__init__()
+        # requires_grad = False
+        self._mean = TensorUtils.to_float(TensorUtils.to_tensor(mean))
+        self._std = TensorUtils.to_float(TensorUtils.to_tensor(std))
+
+        self.register_buffer("mean", self._mean)
+        self.register_buffer("std", self._std)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.std + self.mean
+
 
 class Unsqueeze(nn.Module):
     """
@@ -124,6 +158,8 @@ class SoftPositionEmbed(nn.Module):
         self._embedding = nn.Linear(4, hidden_dim)
         self._grid = self.build_grid(resolution)  # device?
 
+        self.register_buffer("grid", self._grid)
+
     def build_grid(self, resolution: Union[Tuple[int, int], List[int]]) -> torch.Tensor:
         ranges = [np.linspace(0.0, 1.0, num=res) for res in resolution]
         grid = np.meshgrid(*ranges, sparse=False, indexing="ij")
@@ -131,13 +167,13 @@ class SoftPositionEmbed(nn.Module):
         grid = np.reshape(grid, [resolution[0], resolution[1], -1])
         grid = np.expand_dims(grid, axis=0)
         grid = grid.astype(np.float32)
-        return TensorUtils.to_tensor(np.concatenate([grid, 1.0 - grid], axis=-1)).to(
-            "cuda:0"
-        )
+        return TensorUtils.to_tensor(np.concatenate([grid, 1.0 - grid], axis=-1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        grid = self._embedding(self._grid)
+        grid = self._embedding(self.grid)
         return x + grid
+        # grid = self._embedding(self._grid)
+        # return x + grid
 
 
 class SlotAttention(nn.Module):
