@@ -4,6 +4,16 @@ control:
   joints: ["test"]
   # # conrol_type: collector
 
+train:
+  lr: 1e-4
+  lr_scheduler: True
+  optimizer: "Adam"
+  batch_size: 128
+  seq_length: 10 # equal to rnn seq_length if RNNActor
+  weight:
+    l1: 0.0
+    l2: 1.0
+
 actor:
   policy:
     type: "RNNActor"
@@ -11,6 +21,7 @@ actor:
       type: "LSTM"
       rnn_num_layers: 2
       rnn_hidden_dim: 400
+      seq_length: 10
     mlp_layer_dims: [128, 128, 128]
     mlp_activation: "ReLU"
   obs: # input into policy
@@ -19,23 +30,19 @@ actor:
       topic_name: "/kinect_head/rgb/image_rect_color/compressed"
       msg_type: "CompressedImage"
       obs_encoder:
-        pretrained: False
+        normalize: True
+        model: "VariationalAutoEncoder"
+        model_path: "./vae_model.pth"
+        pretrained: True
         input_dim: [224, 224, 3]
         output_dim: 16
-        has_decoder: False
-      image_tune:
-        crop_and_resize: True
-        crop_x_offset: 100
-        crop_y_offset: 40
-        crop_height: 400
-        crop_width: 300
-        height: 224
-        width: 224
+        has_decoder: True
     robot_ee_pos:
       modality: "FloatVectorModality"
       topic_name: "/eus_imitation/robot_state"
       msg_type: "Float32MultiArrayStamped"
       obs_encoder:
+        normalize: True
         input_dim: 4
         output_dim: 4
         layer_dims: null
@@ -75,14 +82,14 @@ dataset:
           input_dim: [224, 224, 3]
           output_dim: 16
           has_decoder: False
-        image_tune:
-          crop_and_resize: True
-          crop_x_offset: 100
-          crop_y_offset: 40
-          crop_height: 400
-          crop_width: 300
-          height: 224
-          width: 224
+        # image_tune:
+        #   crop_and_resize: True
+        #   crop_x_offset: 100
+        #   crop_y_offset: 40
+        #   crop_height: 400
+        #   crop_width: 300
+        #   height: 224
+        #   width: 224
       robot_ee_pos:
         modality: "FloatVectorModality"
         topic_name: "/eus_imitation/robot_state"

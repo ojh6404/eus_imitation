@@ -158,6 +158,7 @@ class ImageModalityEncoder(ModalityEncoderBase):
         self.has_decoder = cfg.has_decoder
         self.encoder_model = cfg.model
 
+
         # self.model = eval(cfg.type)(**cfg_dict)
         self.model = eval(self.encoder_model)()
         if self.pretrained:
@@ -187,9 +188,9 @@ class ImageModalityEncoder(ModalityEncoderBase):
             batch_size, height, width, channel = obs.shape
         else:  # len(obs.shape) == 3
             height, width, channel = obs.shape
-        processed_obs = self.modality.process_obs(obs)
+        processed_obs = self.modality.process_obs(obs) # to [0, 1] of [-1, C, H, W] torch float tensor
 
-        latent, _, _ = self.nets["encoder"](processed_obs)
+        latent, _, _ = self.nets["encoder"](processed_obs) # (B, T, D) or (B, D) or (D)
         if len(obs.shape) == 5:
             latent = latent.view(batch_size, seq_len, -1)  # (B, T, D)
         elif len(obs.shape) == 4:
@@ -214,12 +215,14 @@ class FloatVectorModalityEncoder(nn.Module):
         if self.normalize:
             with open("./config/normalize.yaml", "r") as f:
                 normalizer_cfg = dict(yaml.load(f, Loader=yaml.SafeLoader))
-            max = torch.Tensor(normalizer_cfg[self.modality.name]["obs_max"]).to(
+            max = torch.Tensor(normalizer_cfg["obs"][self.modality.name]["max"]).to(
                 "cuda:0"
             )
-            min = torch.Tensor(normalizer_cfg[self.modality.name]["obs_min"]).to(
+            min = torch.Tensor(normalizer_cfg["obs"][self.modality.name]["min"]).to(
                 "cuda:0"
             )
+            # self.register_buffer("max", max)
+            # self.register_buffer("min", min)
 
             self.modality.set_scaler(mean=(max + min) / 2, std=(max - min) / 2)
 
@@ -233,6 +236,8 @@ class FloatVectorModalityEncoder(nn.Module):
             if self.layer_dims
             else nn.Identity()
         )
+
+
 
     def forward(self, obs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """

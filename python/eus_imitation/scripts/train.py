@@ -77,8 +77,8 @@ if __name__ == "__main__":
         with open("./config/normalize.yaml", "r") as f:
             normalizer_cfg = dict(yaml.load(f, Loader=yaml.SafeLoader))
 
-        action_max = torch.Tensor(normalizer_cfg["action_max"]).to(device)
-        action_min = torch.Tensor(normalizer_cfg["action_min"]).to(device)
+        action_max = torch.Tensor(normalizer_cfg["action"]["max"]).to(device)
+        action_min = torch.Tensor(normalizer_cfg["action"]["min"]).to(device)
         action_mean = (action_max + action_min) / 2
         action_std = (action_max - action_min) / 2
         print("action_max: ", action_max)
@@ -102,7 +102,7 @@ if __name__ == "__main__":
                 # data loader ran out of batches - reset and yield first batch
                 data_loader_iter = iter(data_loader)
                 batch = next(data_loader_iter)
-            batch = TensorUtils.to_device(batch, "cuda:0")
+            batch = TensorUtils.to_device(batch, device)
 
             # calculate time and loss
             start_time = time.time()
@@ -152,9 +152,11 @@ if __name__ == "__main__":
             # input("Press Enter to continue...")
 
         if epoch % 10 == 0:
-            print("epoch: {}, loss: {}".format(epoch, loss.item()))
-            print("prediction: ", prediction[0, 0, :])
-            print("action: ", action[0, 0, :])
+            print(f"epoch: {epoch}, loss: {loss.item():.5g}")
+            torch.save(
+                model.state_dict(),
+                os.path.join(output_dir, args.model + "_model_" + str(epoch) + ".pth"),
+            )
 
         if loss.item() < best_loss:
             print(f"best model saved with loss {loss.item():.5g}")

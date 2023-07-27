@@ -310,7 +310,7 @@ class RNN(nn.Module):
     def rnn_type(self) -> str:
         return self._rnn_type
 
-    def get_rnn_init_state(self, batch_size: int, device: torch.device) -> torch.Tensor:
+    def get_rnn_init_state(self, batch_size: int, device: torch.device) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         h_0 = torch.zeros(
             self._rnn_num_layers * self._num_directions,
             batch_size,
@@ -366,9 +366,9 @@ class RNN(nn.Module):
         inputs : (batch_size, input_dim)
         """
         assert inputs.ndim == 2
-        inputs = TensorUtils.to_sequence(inputs)
+        inputs = TensorUtils.to_sequence(inputs) # (batch_size, 1, input_dim)
         outputs, rnn_state = self.forward(inputs, rnn_state, return_rnn_state=True)
-        return outputs[:, 0, :], rnn_state  # (batch_size, rnn_hidden_dim)
+        return outputs[:, 0, :], rnn_state  # (batch_size, output_dim), (batch_size, hidden_dim)
 
 
 class Conv(nn.Module):
@@ -576,6 +576,9 @@ class ConvDecoder(VisionModule):
             if normalization is not None
             else normalization,
         )
+        self.nets["reshape"] = Reshape(
+            (-1, channels[0], input_conv_size[0], input_conv_size[1])
+        )
         self.nets["deconv"] = Conv(
             input_channel=channels[0],
             channels=channels[1:] + [output_channel],
@@ -587,9 +590,6 @@ class ConvDecoder(VisionModule):
             dropouts=dropouts,
             normalization=normalization,
             output_activation=output_activation,
-        )
-        self.nets["reshape"] = Reshape(
-            (-1, channels[0], input_conv_size[0], input_conv_size[1])
         )
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:

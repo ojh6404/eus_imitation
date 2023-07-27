@@ -96,6 +96,15 @@ def index_at_time(x, index):
         },
     )
 
+def squeeze(x, dim):
+    return recursive_apply(
+        x,
+        {
+            torch.Tensor: lambda x: x.squeeze(dim=dim),
+            np.ndarray: lambda x: np.squeeze(x, axis=dim),
+            type(None): lambda x: x,
+        },
+    )
 
 def unsqueeze(x, dim):
     return recursive_apply(

@@ -127,9 +127,6 @@ if __name__ == "__main__":
                 print(
                     f"epoch: {epoch}, loss: {loss:.5g}, recons_loss: {recons_loss:.5g}, kl_loss: {kl_loss:.5g}"
                 )
-
-        # save best model
-        if epoch % 100 == 0:
             torch.save(
                 model.state_dict(),
                 os.path.join(output_dir, args.model + "_model_" + str(epoch) + ".pth"),

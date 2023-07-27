@@ -5,7 +5,7 @@ import textwrap
 import numpy as np
 from collections import OrderedDict
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union, List
 import yaml
 from easydict import EasyDict as edict
 
@@ -128,12 +128,16 @@ class RNNActor(Actor):
         #     self.nets["rnn"],
         # )
 
+    def get_rnn_init_state(self, batch_size: int, device: torch.device) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        return self.nets["rnn"].get_rnn_init_state(batch_size, device)
+
+
     def forward(
         self,
         obs_dict: Dict[str, torch.Tensor],
         rnn_state: Optional[torch.Tensor] = None,
         return_rnn_state: bool = False,
-    ):
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         obs_dict is expected to be a dictionary with keys of self.obs_keys
         like {"image": image_obs, "robot_ee_pos": robot_ee_pos_obs}
@@ -142,6 +146,7 @@ class RNNActor(Actor):
         outputs, rnn_state = self.nets["rnn"](
             inputs=obs_latents, rnn_state=rnn_state, return_rnn_state=True
         )
+
         if return_rnn_state:
             return outputs, rnn_state
         else:

@@ -267,17 +267,32 @@ def main(args):
                 demo["next_obs/{}".format(obs_name)][:] = next_obs_scaled
 
     yaml_data = OrderedDict()
-    yaml_data["action_max"] = action_max.tolist()
-    yaml_data["action_min"] = action_min.tolist()
-    yaml_data["action_scale"] = action_scale.tolist()
-    yaml_data["action_bias"] = action_bias.tolist()
+    yaml_data["action"] = OrderedDict()
+    yaml_data["obs"] = OrderedDict()
+
+    yaml_data["action"]["max"] = action_max.tolist()
+    yaml_data["action"]["min"] = action_min.tolist()
+    yaml_data["action"]["scale"] = action_scale.tolist()
+    yaml_data["action"]["bias"] = action_bias.tolist()
+
+    # yaml_data["action_max"] = action_max.tolist()
+    # yaml_data["action_min"] = action_min.tolist()
+    # yaml_data["action_scale"] = action_scale.tolist()
+    # yaml_data["action_bias"] = action_bias.tolist()
+
 
     for obs_name in obs_max_buf.keys():
-        yaml_data[obs_name] = OrderedDict()
-        yaml_data[obs_name]["obs_max"] = obs_max_buf[obs_name].tolist()
-        yaml_data[obs_name]["obs_min"] = obs_min_buf[obs_name].tolist()
-        yaml_data[obs_name]["obs_scale"] = obs_scale_buf[obs_name].tolist()
-        yaml_data[obs_name]["obs_bias"] = obs_bias_buf[obs_name].tolist()
+        yaml_data["obs"][obs_name] = OrderedDict()
+        yaml_data["obs"][obs_name]["max"] = obs_max_buf[obs_name].tolist()
+        yaml_data["obs"][obs_name]["min"] = obs_min_buf[obs_name].tolist()
+        yaml_data["obs"][obs_name]["scale"] = obs_scale_buf[obs_name].tolist()
+        yaml_data["obs"][obs_name]["bias"] = obs_bias_buf[obs_name].tolist()
+
+        # yaml_data[obs_name] = OrderedDict()
+        # yaml_data[obs_name]["obs_max"] = obs_max_buf[obs_name].tolist()
+        # yaml_data[obs_name]["obs_min"] = obs_min_buf[obs_name].tolist()
+        # yaml_data[obs_name]["obs_scale"] = obs_scale_buf[obs_name].tolist()
+        # yaml_data[obs_name]["obs_bias"] = obs_bias_buf[obs_name].tolist()
 
     yaml_file = open(os.path.join(os.path.dirname(args.config), "normalize.yaml"), "w")
     yaml.dump(yaml_data, yaml_file, default_flow_style=None)
