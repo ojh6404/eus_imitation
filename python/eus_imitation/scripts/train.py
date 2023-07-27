@@ -13,9 +13,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 from easydict import EasyDict as edict
 
-from eus_imitation.util.datasets import SequenceDataset
-from eus_imitation.base.policy_nets import RNNActor
-import eus_imitation.util.tensor_utils as TensorUtils
+from eus_imitation.utils.datasets import SequenceDataset
+from eus_imitation.models.policy_nets import RNNActor
+import eus_imitation.utils.tensor_utils as TensorUtils
 
 if __name__ == "__main__":
     import argparse

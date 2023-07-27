@@ -1,13 +1,10 @@
-"""
-Contains torch Modules that correspond to basic network building blocks, like 
-MLP, RNN, and CNN backbones.
-"""
+#!/usr/bin/env python3
 
-import math
-import abc
-import numpy as np
-import textwrap
+
+from abc import abstractmethod
 from collections import OrderedDict
+import numpy as np
+from typing import Optional, Union, Tuple, List, Dict
 
 import torch
 import torch.nn as nn
@@ -15,247 +12,253 @@ import torch.nn.functional as F
 from torchvision import transforms
 from torchvision import models as vision_models
 
-import robomimic.utils.tensor_utils as TensorUtils
+import eus_imitation.utils.tensor_utils as TensorUtils
 
 
-CONV_ACTIVATIONS = {
-    "relu": nn.ReLU,
-    "None": None,
-    None: None,
-}
+def calculate_conv_output_size(
+    input_size: List[int],
+    kernel_sizes: List[int],
+    strides: List[int],
+    paddings: List[int],
+) -> List[int]:
+    assert len(kernel_sizes) == len(strides) == len(paddings)
+    output_size = list(input_size)
+    for i in range(len(kernel_sizes)):
+        output_size[0] = (
+            output_size[0] + 2 * paddings[i] - kernel_sizes[i]
+        ) // strides[i] + 1
+        output_size[1] = (
+            output_size[1] + 2 * paddings[i] - kernel_sizes[i]
+        ) // strides[i] + 1
+    return output_size
 
 
-def rnn_args_from_config(rnn_config):
+def calculate_deconv_output_size(
+    input_size: List[int],
+    kernel_sizes: List[int],
+    strides: List[int],
+    paddings: List[int],
+    output_paddings: List[int],
+) -> List[int]:
+    assert len(kernel_sizes) == len(strides) == len(paddings) == len(output_paddings)
+    output_size = list(input_size)
+    for i in range(len(kernel_sizes)):
+        output_size[0] = (
+            (output_size[0] - 1) * strides[i]
+            - 2 * paddings[i]
+            + kernel_sizes[i]
+            + output_paddings[i]
+        )
+        output_size[1] = (
+            (output_size[1] - 1) * strides[i]
+            - 2 * paddings[i]
+            + kernel_sizes[i]
+            + output_paddings[i]
+        )
+    return output_size
+
+
+class Reshape(nn.Module):
     """
-    Takes a Config object corresponding to RNN settings
-    (for example `config.algo.rnn` in BCConfig) and extracts
-    rnn kwargs for instantiating rnn networks.
+    Module that reshapes a tensor.
     """
-    return dict(
-        rnn_hidden_dim=rnn_config.hidden_dim,
-        rnn_num_layers=rnn_config.num_layers,
-        rnn_type=rnn_config.rnn_type,
-        rnn_kwargs=dict(rnn_config.kwargs),
-    )
+
+    def __init__(self, shape: Union[int, Tuple[int, ...]]) -> None:
+        super(Reshape, self).__init__()
+        self._shape = shape
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.view(self._shape)
 
 
-def transformer_args_from_config(transformer_config):
+class Permute(nn.Module):
     """
-    Takes a Config object corresponding to Transformer settings
-    (for example `config.algo.transformer` in BCConfig) and extracts
-    transformer kwargs for instantiating transformer networks.
+    Module that permutes a tensor.
     """
-    transformer_args = dict(
-        transformer_context_length=transformer_config.context_length,
-        transformer_embed_dim=transformer_config.embed_dim,
-        transformer_num_heads=transformer_config.num_heads,
-        transformer_emb_dropout=transformer_config.emb_dropout,
-        transformer_attn_dropout=transformer_config.attn_dropout,
-        transformer_block_output_dropout=transformer_config.block_output_dropout,
-        transformer_sinusoidal_embedding=transformer_config.sinusoidal_embedding,
-        transformer_activation=transformer_config.activation,
-        transformer_nn_parameter_for_timesteps=transformer_config.nn_parameter_for_timesteps,
-    )
-    
-    if "num_layers" in transformer_config:
-        transformer_args["transformer_num_layers"] = transformer_config.num_layers
 
-    return transformer_args
+    def __init__(self, dims: Union[List[int], Tuple[int, ...]]) -> None:
+        super(Permute, self).__init__()
+        self._dims = dims
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.permute(self._dims)
 
 
-class Module(torch.nn.Module):
+class Unsqueeze(nn.Module):
     """
-    Base class for networks. The only difference from torch.nn.Module is that it
-    requires implementing @output_shape.
+    Module that unsqueezes a tensor.
     """
-    @abc.abstractmethod
-    def output_shape(self, input_shape=None):
-        """
-        Function to compute output shape from inputs to this module. 
 
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        raise NotImplementedError
-
-
-class Sequential(torch.nn.Sequential, Module):
-    """
-    Compose multiple Modules together (defined above).
-    """
-    def __init__(self, *args, has_output_shape = True):
-        """
-        Args:
-            has_output_shape (bool, optional): indicates whether output_shape can be called on the Sequential module.
-                torch.nn modules do not have an output_shape, but Modules (defined above) do. Defaults to True.
-        """
-        for arg in args:
-            if has_output_shape:
-                assert isinstance(arg, Module)
-            else:
-                assert isinstance(arg, nn.Module)
-        torch.nn.Sequential.__init__(self, *args)
-        self.fixed = False
-        self.has_output_shape = has_output_shape
-
-    def output_shape(self, input_shape=None):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        if not self.has_output_shape:
-            raise NotImplementedError("Output shape is not defined for this module")
-        out_shape = input_shape
-        for module in self:
-            out_shape = module.output_shape(out_shape)
-        return out_shape
-
-    def freeze(self):
-        self.fixed = True
-
-    def train(self, mode):
-        if self.fixed:
-            super().train(False)
-        else:
-            super().train(mode)
-
-
-class Parameter(Module):
-    """
-    A class that is a thin wrapper around a torch.nn.Parameter to make for easy saving
-    and optimization.
-    """
-    def __init__(self, init_tensor):
-        """
-        Args:
-            init_tensor (torch.Tensor): initial tensor
-        """
-        super(Parameter, self).__init__()
-        self.param = torch.nn.Parameter(init_tensor)
-
-    def output_shape(self, input_shape=None):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        return list(self.param.shape)
-
-    def forward(self, inputs=None):
-        """
-        Forward call just returns the parameter tensor.
-        """
-        return self.param
-
-
-class Unsqueeze(Module):
-    """
-    Trivial class that unsqueezes the input. Useful for including in a nn.Sequential network
-    """
-    def __init__(self, dim):
+    def __init__(self, dim: int) -> None:
         super(Unsqueeze, self).__init__()
-        self.dim = dim
+        self._dim = dim
 
-    def output_shape(self, input_shape=None):
-        assert input_shape is not None
-        return input_shape + [1] if self.dim == -1 else input_shape[:self.dim + 1] + [1] + input_shape[self.dim + 1:]
-
-    def forward(self, x):
-        return x.unsqueeze(dim=self.dim)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.unsqueeze(dim=self._dim)
 
 
-class Squeeze(Module):
+class Squeeze(nn.Module):
     """
-    Trivial class that squeezes the input. Useful for including in a nn.Sequential network
+    Module that squeezes a tensor.
     """
 
-    def __init__(self, dim):
+    def __init__(self, dim: int) -> None:
         super(Squeeze, self).__init__()
-        self.dim = dim
+        self._dim = dim
 
-    def output_shape(self, input_shape=None):
-        assert input_shape is not None
-        return input_shape[:self.dim] + input_shape[self.dim+1:] if input_shape[self.dim] == 1 else input_shape
-
-    def forward(self, x):
-        return x.squeeze(dim=self.dim)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.squeeze(dim=self._dim)
 
 
-class MLP(Module):
+class SoftPositionEmbed(nn.Module):
     """
-    Base class for simple Multi-Layer Perceptrons.
+    Module that adds soft positional embeddings to a tensor.
     """
+
+    def __init__(
+        self, hidden_dim: int, resolution: Union[Tuple[int, int], List[int]]
+    ) -> None:
+        super(SoftPositionEmbed, self).__init__()
+        self._hidden_dim = hidden_dim
+        self._resolution = resolution
+        self._embedding = nn.Linear(4, hidden_dim)
+        self._grid = self.build_grid(resolution)  # device?
+
+    def build_grid(self, resolution: Union[Tuple[int, int], List[int]]) -> torch.Tensor:
+        ranges = [np.linspace(0.0, 1.0, num=res) for res in resolution]
+        grid = np.meshgrid(*ranges, sparse=False, indexing="ij")
+        grid = np.stack(grid, axis=-1)
+        grid = np.reshape(grid, [resolution[0], resolution[1], -1])
+        grid = np.expand_dims(grid, axis=0)
+        grid = grid.astype(np.float32)
+        return TensorUtils.to_tensor(np.concatenate([grid, 1.0 - grid], axis=-1)).to(
+            "cuda:0"
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        grid = self._embedding(self._grid)
+        return x + grid
+
+
+class SlotAttention(nn.Module):
+    """
+    Module that performs slot attention.
+    ref : https://github.com/lucidrains/slot-attention
+    """
+
     def __init__(
         self,
-        input_dim,
-        output_dim,
-        layer_dims=(),
-        layer_func=nn.Linear,
-        layer_func_kwargs=None,
-        activation=nn.ReLU,
-        dropouts=None,
-        normalization=False,
-        output_activation=None,
-    ):
-        """
-        Args:
-            input_dim (int): dimension of inputs
+        num_slots: int = 7,
+        dim: int = 64,
+        num_iters: int = 3,
+        eps: float = 1e-8,
+        hidden_dim: int = 128,
+    ) -> None:
+        super(SlotAttention, self).__init__()
+        self._num_slots = num_slots
+        self._num_iters = num_iters
+        self._eps = eps
+        self._scale = dim**-0.5
+        hidden_dim = max(dim, hidden_dim)
 
-            output_dim (int): dimension of outputs
+        self.slots_mu = nn.Parameter(torch.randn(1, 1, dim))
+        self.slots_log_sigma = nn.Parameter(torch.zeros(1, 1, dim))
+        nn.init.xavier_uniform_(self.slots_log_sigma)
 
-            layer_dims ([int]): sequence of integers for the hidden layers sizes
+        self.to_q = nn.Linear(dim, dim)
+        self.to_k = nn.Linear(dim, dim)
+        self.to_v = nn.Linear(dim, dim)
 
-            layer_func: mapping per layer - defaults to Linear
+        self.gru = nn.GRUCell(dim, dim)
+        self.mlp = MLP(
+            input_dim=dim,
+            output_dim=dim,
+            layer_dims=[hidden_dim],
+            activation=nn.ReLU,
+        )
 
-            layer_func_kwargs (dict): kwargs for @layer_func
+        self.norm_input = nn.LayerNorm(dim)
+        self.norm_slots = nn.LayerNorm(dim)
+        self.norm_mlp = nn.LayerNorm(dim)
 
-            activation: non-linearity per layer - defaults to ReLU
+    # def step(self, slots, k, v):
+    #     q = self.to_q(self.norm_slots(slots))
+    #     k = k * self._scale
+    #     attn = F.softmax(torch.einsum("bkd,bqd->bkq", k, q), dim=-1)
+    #     attn = attn / torch.sum(attn + self._eps, dim=-2, keepdim=True)
+    #     updates = torch.einsum("bvq,bvd->bqd", attn, v)
+    #     slots = self.gru(updates, slots)
+    #     slots = slots + self.mlp(self.norm_mlp(slots))
+    #     return slots
 
-            dropouts ([float]): if not None, adds dropout layers with the corresponding probabilities
-                after every layer. Must be same size as @layer_dims.
+    # def iterate(self, f, x):
+    #     for _ in range(self._num_iters):
+    #         x = f(x)
+    #     return x
 
-            normalization (bool): if True, apply layer normalization after each layer
+    # def forward(self, inputs, slots):
+    #     inputs = self.norm_input(inputs)
+    #     k, v = self.to_k(inputs), self.to_v(inputs)
+    #     slots = self.iterate(lambda x: self.step(x, k, v), slots)
+    #     slots = self.step(slots.detach(), k, v)
+    #     return slots
 
-            output_activation: if provided, applies the provided non-linearity to the output layer
-        """
+    def forward(self, inputs, num_slots=None):
+        b, n, d, device, dtype = *inputs.shape, inputs.device, inputs.dtype
+        n_s = num_slots if num_slots is not None else self._num_slots
+        mu = self.slots_mu.expand(b, n_s, -1)
+        sigma = self.slots_log_sigma.exp().expand(b, n_s, -1)
+        slots = mu + sigma * torch.randn(mu.shape, device=device, dtype=dtype)
+        inputs = self.norm_input(inputs)
+        k, v = self.to_k(inputs), self.to_v(inputs)
+        for _ in range(self._num_iters):
+            slots_prev = slots
+            slots = self.norm_slots(slots)
+            q = self.to_q(slots)
+            dots = torch.einsum("bid,bjd->bij", q, k) * self._scale
+            attn = dots.softmax(dim=1) + self._eps
+            attn = attn / attn.sum(dim=-1, keepdim=True)
+            updates = torch.einsum("bjd,bij->bid", v, attn)
+            slots = self.gru(updates.reshape(-1, d), slots_prev.reshape(-1, d))
+            # slots = slots.reshape(b, -1, d)
+            slots = slots.view(b, -1, d)
+            slots = slots + self.mlp(self.norm_mlp(slots))
+
+        return slots
+
+
+class MLP(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        layer_dims: List[int],
+        layer: nn.Module = nn.Linear,
+        layer_kwargs: Optional[dict] = None,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = None,
+    ) -> None:
         super(MLP, self).__init__()
+        if dropouts is not None:
+            assert len(dropouts) == len(layer_dims)
         layers = []
         dim = input_dim
-        if layer_func_kwargs is None:
-            layer_func_kwargs = dict()
-        if dropouts is not None:
-            assert(len(dropouts) == len(layer_dims))
+        layer_kwargs = layer_kwargs if layer_kwargs is not None else dict()
         for i, l in enumerate(layer_dims):
-            layers.append(layer_func(dim, l, **layer_func_kwargs))
-            if normalization:
-                layers.append(nn.LayerNorm(l))
+            layers.append(layer(dim, l, **layer_kwargs))
+            if normalization is not None:
+                layers.append(normalization(l))
             layers.append(activation())
-            if dropouts is not None and dropouts[i] > 0.:
+            if dropouts is not None and dropouts[i] > 0.0:
                 layers.append(nn.Dropout(dropouts[i]))
             dim = l
-        layers.append(layer_func(dim, output_dim))
+        layers.append(layer(dim, output_dim))
         if output_activation is not None:
             layers.append(output_activation())
-        self._layer_func = layer_func
-        self.nets = layers
+        self._layer = layer
+        self._nets = layers
         self._model = nn.Sequential(*layers)
 
         self._layer_dims = layer_dims
@@ -265,847 +268,854 @@ class MLP(Module):
         self._act = activation
         self._output_act = output_activation
 
-    def output_shape(self, input_shape=None):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        return [self._output_dim]
-
-    def forward(self, inputs):
-        """
-        Forward pass.
-        """
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self._model(inputs)
 
-    def __repr__(self):
-        """Pretty print network."""
-        header = str(self.__class__.__name__)
-        act = None if self._act is None else self._act.__name__
-        output_act = None if self._output_act is None else self._output_act.__name__
 
-        indent = ' ' * 4
-        msg = "input_dim={}\noutput_dim={}\nlayer_dims={}\nlayer_func={}\ndropout={}\nact={}\noutput_act={}".format(
-            self._input_dim, self._output_dim, self._layer_dims,
-            self._layer_func.__name__, self._dropouts, act, output_act
-        )
-        msg = textwrap.indent(msg, indent)
-        msg = header + '(\n' + msg + '\n)'
-        return msg
-
-
-class RNN_Base(Module):
-    """
-    A wrapper class for a multi-step RNN and a per-step network.
-    """
+class RNN(nn.Module):
     def __init__(
         self,
-        input_dim,
-        rnn_hidden_dim,
-        rnn_num_layers,
-        rnn_type="LSTM",  # [LSTM, GRU]
-        rnn_kwargs=None,
-        per_step_net=None,
-    ):
-        """
-        Args:
-            input_dim (int): dimension of inputs
-
-            rnn_hidden_dim (int): RNN hidden dimension
-
-            rnn_num_layers (int): number of RNN layers
-
-            rnn_type (str): [LSTM, GRU]
-
-            rnn_kwargs (dict): kwargs for the torch.nn.LSTM / GRU
-
-            per_step_net: a network that runs per time step on top of the RNN output
-        """
-        super(RNN_Base, self).__init__()
-        self.per_step_net = per_step_net
-        if per_step_net is not None:
-            assert isinstance(per_step_net, Module), "RNN_Base: per_step_net is not instance of Module"
+        rnn_input_dim: int,
+        rnn_hidden_dim: int,
+        rnn_num_layers: int,
+        rnn_type: str,
+        rnn_kwargs: Optional[Dict] = None,
+        per_step_net: Optional[nn.Module] = None,
+    ) -> None:
+        super(RNN, self).__init__()
 
         assert rnn_type in ["LSTM", "GRU"]
+        assert per_step_net is None or isinstance(per_step_net, nn.Module)
+
         rnn_cls = nn.LSTM if rnn_type == "LSTM" else nn.GRU
-        rnn_kwargs = rnn_kwargs if rnn_kwargs is not None else {}
-        rnn_is_bidirectional = rnn_kwargs.get("bidirectional", False)
+        rnn_kwargs = rnn_kwargs if rnn_kwargs is not None else dict()
+
+        self._rnn_input_dim = rnn_input_dim
+        self._rnn_hidden_dim = rnn_hidden_dim
+        self._rnn_num_layers = rnn_num_layers
+        self._rnn_type = rnn_type
+        self._per_step_net = per_step_net
+        self._is_bidirectional = rnn_kwargs.get("bidirectional", False)
+        self._num_directions = 2 if self._is_bidirectional else 1
 
         self.nets = rnn_cls(
-            input_size=input_dim,
-            hidden_size=rnn_hidden_dim,
-            num_layers=rnn_num_layers,
+            input_size=self._rnn_input_dim,
+            hidden_size=self._rnn_hidden_dim,
+            num_layers=self._rnn_num_layers,
             batch_first=True,
             **rnn_kwargs,
         )
 
-        self._hidden_dim = rnn_hidden_dim
-        self._num_layers = rnn_num_layers
-        self._rnn_type = rnn_type
-        self._num_directions = int(rnn_is_bidirectional) + 1 # 2 if bidirectional, 1 otherwise
-
     @property
-    def rnn_type(self):
+    def rnn_type(self) -> str:
         return self._rnn_type
 
-    def get_rnn_init_state(self, batch_size, device):
-        """
-        Get a default RNN state (zeros)
-        Args:
-            batch_size (int): batch size dimension
-
-            device: device the hidden state should be sent to.
-
-        Returns:
-            hidden_state (torch.Tensor or tuple): returns hidden state tensor or tuple of hidden state tensors
-                depending on the RNN type
-        """
-        h_0 = torch.zeros(self._num_layers * self._num_directions, batch_size, self._hidden_dim).to(device)
+    def get_rnn_init_state(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        h_0 = torch.zeros(
+            self._rnn_num_layers * self._num_directions,
+            batch_size,
+            self._rnn_hidden_dim,
+            device=device,
+        )
         if self._rnn_type == "LSTM":
-            c_0 = torch.zeros(self._num_layers * self._num_directions, batch_size, self._hidden_dim).to(device)
-            return h_0, c_0
+            c_0 = torch.zeros(
+                self._rnn_num_layers * self._num_directions,
+                batch_size,
+                self._rnn_hidden_dim,
+                device=device,
+            )
+            return (h_0, c_0)
         else:
             return h_0
 
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module. 
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        rnn_state: Optional[torch.Tensor] = None,
+        return_rnn_state: bool = False,
+    ):
+        # def time_distributed(inputs, net):
+        #     """
+        #     function that applies a network to a time distributed input
+        #     inputs : (batch_size, seq_len, ...)
+        #     outputs : (batch_size, seq_len, ...)
+        #     """
+        #     batch_size, seq_len, = inputs.shape[:2]
+        #     # inputs = inputs.reshape(-1, inputs.shape[-1])
+        #     outputs = net(inputs)
+        #     # outputs = outputs.reshape(batch_size, seq_len, -1)
+        #     return outputs
 
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
+        assert inputs.ndim == 3  # (batch_size, seq_len, input_dim)
+        batch_size, _, _ = inputs.shape
+        if rnn_state is None:
+            rnn_state = self.get_rnn_init_state(batch_size, inputs.device)
 
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-
-        # infer time dimension from input shape and add to per_step_net output shape
-        if self.per_step_net is not None:
-            out = self.per_step_net.output_shape(input_shape[1:])
-            if isinstance(out, dict):
-                out = {k: [input_shape[0]] + out[k] for k in out}
-            else:
-                out = [input_shape[0]] + out
-        else:
-            out = [input_shape[0], self._num_layers * self._hidden_dim]
-        return out
-
-    def forward(self, inputs, rnn_init_state=None, return_state=False):
-        """
-        Forward a sequence of inputs through the RNN and the per-step network.
-
-        Args:
-            inputs (torch.Tensor): tensor input of shape [B, T, D], where D is the RNN input size
-
-            rnn_init_state: rnn hidden state, initialize to zero state if set to None
-
-            return_state (bool): whether to return hidden state
-
-        Returns:
-            outputs: outputs of the per_step_net
-
-            rnn_state: return rnn state at the end if return_state is set to True
-        """
-        assert inputs.ndimension() == 3  # [B, T, D]
-        batch_size, seq_length, inp_dim = inputs.shape
-        if rnn_init_state is None:
-            rnn_init_state = self.get_rnn_init_state(batch_size, device=inputs.device)
-
-        outputs, rnn_state = self.nets(inputs, rnn_init_state)
-        if self.per_step_net is not None:
-            outputs = TensorUtils.time_distributed(outputs, self.per_step_net)
-
-        if return_state:
+        outputs, rnn_state = self.nets(inputs, rnn_state)
+        if self._per_step_net is not None:
+            outputs = self._per_step_net(outputs)
+            # outputs = time_distributed(outputs, self._per_step_net)
+        if return_rnn_state:
             return outputs, rnn_state
         else:
             return outputs
 
-    def forward_step(self, inputs, rnn_state):
+    def forward_step(self, inputs: torch.Tensor, rnn_state: torch.Tensor):
         """
-        Forward a single step input through the RNN and per-step network, and return the new hidden state.
-        Args:
-            inputs (torch.Tensor): tensor input of shape [B, D], where D is the RNN input size
-
-            rnn_state: rnn hidden state, initialize to zero state if set to None
-
-        Returns:
-            outputs: outputs of the per_step_net
-
-            rnn_state: return the new rnn state
+        return rnn outputs and rnn state for the next step
+        inputs : (batch_size, input_dim)
         """
-        assert inputs.ndimension() == 2
+        assert inputs.ndim == 2
         inputs = TensorUtils.to_sequence(inputs)
-        outputs, rnn_state = self.forward(
-            inputs,
-            rnn_init_state=rnn_state,
-            return_state=True,
-        )
-        return outputs[:, 0], rnn_state
+        outputs, rnn_state = self.forward(inputs, rnn_state, return_rnn_state=True)
+        return outputs[:, 0, :], rnn_state  # (batch_size, rnn_hidden_dim)
 
 
-"""
-================================================
-Visual Backbone Networks
-================================================
-"""
-class ConvBase(Module):
+class Conv(nn.Module):
     """
-    Base class for ConvNets.
+    Base 2D Convolutional neural network.
+    inputs like (batch_size, channels, height, width)
     """
-    def __init__(self):
-        super(ConvBase, self).__init__()
 
-    # dirty hack - re-implement to pass the buck onto subclasses from ABC parent
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module. 
+    def __init__(
+        self,
+        input_channel: int,
+        channels: List[int],
+        kernel_sizes: List[int],
+        strides: List[int],
+        paddings: List[int],
+        layer: nn.Module = nn.Conv2d,
+        layer_kwargs: Optional[dict] = None,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = None,
+    ) -> None:
+        super(Conv, self).__init__()
 
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
+        assert len(channels) == len(kernel_sizes) == len(strides) == len(paddings)
+        layers = []
+        layer_kwargs = layer_kwargs if layer_kwargs is not None else dict()
 
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        raise NotImplementedError
-
-    def forward(self, inputs):
-        x = self.nets(inputs)
-        if list(self.output_shape(list(inputs.shape)[1:])) != list(x.shape)[1:]:
-            raise ValueError('Size mismatch: expect size %s, but got size %s' % (
-                str(self.output_shape(list(inputs.shape)[1:])), str(list(x.shape)[1:]))
+        for i in range(len(channels)):
+            if i == 0:
+                in_channels = input_channel
+            else:
+                in_channels = channels[i - 1]
+            out_channels = channels[i]
+            layers.append(
+                layer(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=kernel_sizes[i],
+                    stride=strides[i],
+                    padding=paddings[i],
+                    **layer_kwargs,
+                )
             )
+            if (
+                normalization is not None and i != len(channels) - 1
+            ):  # not the last layer
+                layers.append(normalization(out_channels))
+            if i != len(channels) - 1:  # not the last layer
+                layers.append(activation())
+            if dropouts is not None:
+                layers.append(nn.Dropout(dropouts[i]))
+
+        if output_activation is not None:
+            layers.append(output_activation())
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.net(inputs)
+
+
+class VisionModule(nn.Module):
+    """
+    inputs like uint8 (B, C, H, W) or (B, C, H, W) or (C, H, W) torch.Tensor
+    """
+
+    # @abstractmethod
+    # def preprocess(self, inputs: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     preprocess inputs to fit the pretrained model
+    #     """
+    #     raise NotImplementedError
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.net(inputs)
+
+
+class ConvEncoder(VisionModule):
+    def __init__(
+        self,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        mean_var: bool = False,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = None,
+    ) -> None:
+        super(ConvEncoder, self).__init__()
+        output_conv_size = calculate_conv_output_size(
+            input_size=input_size,  # TODO: input size
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+        )
+
+        self.mean_var = mean_var
+        self.output_activation = (
+            output_activation if output_activation is not None else lambda x: x
+        )
+
+        self.nets = nn.ModuleDict()
+        self.nets["conv"] = Conv(
+            input_channel=input_channel,
+            channels=channels,
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            layer=nn.Conv2d,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=None,
+        )
+        self.nets["reshape"] = Reshape(
+            (-1, channels[-1] * output_conv_size[0] * output_conv_size[1])
+        )
+
+        if mean_var:
+            self.nets["mlp_mu"] = MLP(
+                input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
+                output_dim=latent_dim,
+                layer_dims=[latent_dim * 4, latent_dim * 2],
+                activation=activation,
+                dropouts=None,
+                normalization=nn.BatchNorm1d
+                if normalization is not None
+                else normalization,
+            )
+            self.nets["mlp_logvar"] = MLP(
+                input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
+                output_dim=latent_dim,
+                layer_dims=[latent_dim * 4, latent_dim * 2],
+                activation=activation,
+                dropouts=None,
+                normalization=nn.BatchNorm1d
+                if normalization is not None
+                else normalization,
+            )
+        else:
+            self.nets["mlp"] = MLP(
+                input_dim=channels[-1] * output_conv_size[0] * output_conv_size[1],
+                output_dim=latent_dim,
+                layer_dims=[latent_dim * 4, latent_dim * 2],
+                activation=activation,
+                dropouts=None,
+                normalization=nn.BatchNorm1d
+                if normalization is not None
+                else normalization,
+            )
+
+    def reparametrize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + std * eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.nets["conv"](x)
+        x = self.nets["reshape"](x)
+        if self.mean_var:
+            mu = self.output_activation(self.nets["mlp_mu"](x))
+            logvar = self.output_activation(self.nets["mlp_logvar"](x))
+            z = self.reparametrize(mu, logvar)
+            return z, mu, logvar
+        else:
+            z = self.output_activation(self.nets["mlp"](x))
+            return z
+
+
+class ConvDecoder(VisionModule):
+    def __init__(
+        self,
+        input_conv_size: List[int] = [4, 4],
+        output_channel: int = 3,
+        channels: List[int] = [256, 128, 64, 32, 16, 8],
+        kernel_sizes: List[int] = [3, 4, 4, 4, 4, 4],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
+    ) -> None:
+        super(ConvDecoder, self).__init__()
+
+        self.output_activation = (
+            output_activation if output_activation is not None else lambda x: x
+        )
+
+        self.nets = nn.ModuleDict()
+        self.nets["mlp"] = MLP(
+            input_dim=latent_dim,
+            output_dim=channels[0] * input_conv_size[0] * input_conv_size[1],
+            layer_dims=[latent_dim * 2, latent_dim * 4],
+            activation=activation,
+            dropouts=None,
+            normalization=nn.BatchNorm1d
+            if normalization is not None
+            else normalization,
+        )
+        self.nets["deconv"] = Conv(
+            input_channel=channels[0],
+            channels=channels[1:] + [output_channel],
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            layer=nn.ConvTranspose2d,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=output_activation,
+        )
+        self.nets["reshape"] = Reshape(
+            (-1, channels[0], input_conv_size[0], input_conv_size[1])
+        )
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        x = self.nets["mlp"](z)
+        x = self.nets["reshape"](x)
+        x = self.nets["deconv"](x)
         return x
 
 
-class ResNet18Conv(ConvBase):
+class AutoEncoder(VisionModule):
     """
-    A ResNet18 block that can be used to process input images.
+    AutoEncoder for image compression using class Conv for Encoder and Decoder
     """
+
+    def __init__(
+        self,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        encoder_kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        decoder_kernel_sizes: List[int] = [3, 4, 4, 4, 4, 4],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=nn.BatchNorm2d,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
+    ) -> None:
+        super(AutoEncoder, self).__init__()
+
+        assert (
+            len(channels)
+            == len(encoder_kernel_sizes)
+            == len(strides)
+            == len(paddings)
+            == len(decoder_kernel_sizes)
+        )
+
+        output_conv_size = calculate_conv_output_size(
+            input_size=input_size,  # TODO: input size
+            kernel_sizes=encoder_kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+        )
+
+        self.nets = nn.ModuleDict()
+        self.nets["encoder"] = ConvEncoder(
+            input_size=input_size,
+            input_channel=input_channel,
+            channels=channels,
+            kernel_sizes=encoder_kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            latent_dim=latent_dim,
+            mean_var=False,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=None,
+        )
+
+        self.nets["decoder"] = ConvDecoder(
+            input_conv_size=output_conv_size,
+            output_channel=input_channel,
+            channels=list(reversed(channels)),
+            kernel_sizes=decoder_kernel_sizes,
+            strides=list(reversed(strides)),
+            paddings=list(reversed(paddings)),
+            latent_dim=latent_dim,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=output_activation,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.nets["encoder"](x)
+        x = self.nets["decoder"](z)
+        return x, z
+
+    def loss(self, x: torch.Tensor) -> torch.Tensor:
+        loss_dict = {}
+        x_hat, z = self.forward(x)
+        reconstruction_loss = nn.MSELoss()(x_hat, x)
+        loss_dict["reconstruction_loss"] = reconstruction_loss
+        return loss_dict
+
+
+class VariationalAutoEncoder(VisionModule):
+    def __init__(
+        self,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        encoder_kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        decoder_kernel_sizes: List[int] = [3, 4, 4, 4, 4, 4],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=nn.BatchNorm2d,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
+    ) -> None:
+        super(VariationalAutoEncoder, self).__init__()
+        assert (
+            len(channels)
+            == len(encoder_kernel_sizes)
+            == len(strides)
+            == len(paddings)
+            == len(decoder_kernel_sizes)
+        )
+
+        output_conv_size = calculate_conv_output_size(
+            input_size=input_size,  # TODO: input size
+            kernel_sizes=encoder_kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+        )
+
+        self.nets = nn.ModuleDict()
+        self.nets["encoder"] = ConvEncoder(
+            input_size=input_size,
+            input_channel=input_channel,
+            channels=channels,
+            kernel_sizes=encoder_kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            latent_dim=latent_dim,
+            mean_var=True,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=None,
+        )
+
+        self.nets["decoder"] = ConvDecoder(
+            input_conv_size=output_conv_size,
+            output_channel=input_channel,
+            channels=list(reversed(channels)),
+            kernel_sizes=decoder_kernel_sizes,
+            strides=list(reversed(strides)),
+            paddings=list(reversed(paddings)),
+            latent_dim=latent_dim,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=output_activation,
+        )
+
+    def forward(
+        self, x: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        z, mu, logvar = self.nets["encoder"](x)
+        x = self.nets["decoder"](z)
+        return x, z, mu, logvar
+
+    def kld_loss(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        # kld_weight = 1e-1 / torch.prod(torch.Tensor(mu.shape)) # TODO
+        batch_size = mu.size(0)
+        kld_weight = 1e-1 * mu.size(1) / (224 * 224 * 3 * batch_size)  # TODO
+        kl_loss = (
+            torch.mean(
+                -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1),
+                dim=0,
+            )
+            * kld_weight
+        )
+        return kl_loss
+
+    def loss(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        loss_dict = dict()
+        x_hat, z, mu, logvar = self.forward(x)
+        reconstruction_loss = nn.MSELoss()(x_hat, x)
+        kld_loss = self.kld_loss(mu, logvar)
+        loss_dict["reconstruction_loss"] = reconstruction_loss
+        loss_dict["kld_loss"] = kld_loss
+        return loss_dict
+
+
+class SlotAttentionEncoder(VisionModule):
+    """
+    Slot Attention Encoder
+    """
+
+    def __init__(
+        self,
+        input_size: List[int] = [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [64, 64, 64, 64, 64, 64],
+        kernel_sizes: List[int] = [5, 5, 5, 5, 5, 5],
+        strides: List[int] = [1, 1, 1, 1, 1, 1],
+        paddings: List[int] = [2, 2, 2, 2, 2, 2],
+        num_iters: int = 3,
+        eps: float = 1e-8,
+        hidden_dim: int = 64,
+        mlp_hidden_dim: int = 128,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = nn.ReLU,
+        num_slots: int = 7,
+    ) -> None:
+        super(SlotAttentionEncoder, self).__init__()
+
+        self.nets = nn.ModuleDict()
+
+        self.nets["conv"] = Conv(
+            input_channel=input_channel,
+            channels=channels,
+            kernel_sizes=kernel_sizes,
+            strides=strides,
+            paddings=paddings,
+            activation=activation,
+            dropouts=dropouts,
+            normalization=normalization,
+            output_activation=output_activation,
+        )
+
+        self.nets["slot_attention"] = SlotAttention(
+            num_slots=num_slots,
+            dim=hidden_dim,
+            num_iters=num_iters,
+            eps=eps,
+            hidden_dim=mlp_hidden_dim,
+        )
+
+        self.nets["pos_encoder"] = SoftPositionEmbed(
+            hidden_dim=hidden_dim, resolution=input_size
+        )
+
+        self.nets["layer_norm"] = nn.LayerNorm(hidden_dim)
+        self.nets["permute"] = Permute([0, 2, 3, 1])
+        # self.nets["reshape"] = Reshape([-1, inputs_size[0] * inputs_size[1], hid_dim])
+
+        self.nets["mlp_encoder"] = MLP(
+            input_dim=hidden_dim,
+            output_dim=hidden_dim,
+            layer_dims=[hidden_dim],
+            activation=activation,
+            dropouts=dropouts,
+            normalization=None,
+            output_activation=None,
+        )
+
+    def forward(
+        self, x: torch.Tensor, vectorized_slot_feature: bool = False
+    ) -> torch.Tensor:
+        x = self.nets["conv"](x)  # [B, 64, 128, 128]
+        x = self.nets["permute"](x)  # [B, 128, 128, 64]
+        x = self.nets["pos_encoder"](x)  # [B, 128, 128, 64]
+        x = x.view(x.shape[0], -1, x.shape[-1])  # [B, 128*128, 64]
+        x = self.nets["layer_norm"](x)
+        x = self.nets["mlp_encoder"](x)
+        if vectorized_slot_feature:
+            x = self.nets["slot_attention"](x).view(x.shape[0], -1)
+        else:
+            x = self.nets["slot_attention"](x)
+        return x
+
+
+class SlotDecoder(nn.Module):
+    def __init__(self, hid_dim, resolution):
+        super().__init__()
+        self.decoder_initial_size = (8, 8)
+        self.decoder_pos = SoftPositionEmbed(hid_dim, self.decoder_initial_size)
+
+        self.conv1 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=2)
+        self.conv2 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=1)
+        self.conv3 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=1)
+        self.conv4 = nn.ConvTranspose2d(hid_dim, hid_dim, 4, stride=(2, 2), padding=1)
+        self.conv5 = nn.ConvTranspose2d(hid_dim, 4, 4, stride=(2, 2), padding=1)
+
+        self.resolution = resolution
+
+    def forward(self, x):
+        x = self.decoder_pos(x)  # [-1, 8, 8, slot_dim]
+        x = x.permute(0, 3, 1, 2)  # [-1, slot_dim, 8, 8]
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = self.conv3(x)
+        x = F.relu(x)
+        x = self.conv4(x)
+        x = F.relu(x)
+        x = self.conv5(x)
+        x = x.permute(0, 2, 3, 1)  # [B, 128, 128, 4]
+        return x
+
+
+class SlotAttentionDecoder(VisionModule):
+    """
+    Slot Attention Encoder
+    """
+
+    def __init__(
+        self,
+        input_size: List[int] = [128, 128],
+        input_channel: int = 3,
+        channels: List[int] = [8, 16, 32, 64, 128, 256],
+        kernel_sizes: List[int] = [3, 3, 3, 3, 3, 3],
+        strides: List[int] = [2, 2, 2, 2, 2, 2],
+        paddings: List[int] = [1, 1, 1, 1, 1, 1],
+        latent_dim: int = 16,
+        mean_var: bool = False,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=None,
+        output_activation: Optional[nn.Module] = None,
+        num_slots: int = 7,
+    ) -> None:
+        super(SlotAttentionDecoder, self).__init__()
+        hid_dim = 64
+
+        self.nets = nn.ModuleDict()
+
+        self.decoder_cnn = SlotDecoder(hid_dim, input_size)
+
+        self.nets["layer_norm"] = nn.LayerNorm(hid_dim)
+
+        self.nets["mlp_encoder"] = MLP(
+            input_dim=hid_dim,
+            output_dim=hid_dim,
+            layer_dims=[hid_dim],
+            activation=activation,
+            dropouts=None,
+            normalization=None,
+            output_activation=None,
+        )
+
+    def forward(self, slots: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+        batch_size = slots.shape[0]
+        # slots [B, num_slots, slot_dim]
+        # slots = slots.reshape((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
+        slots = slots.view((-1, slots.shape[-1])).unsqueeze(1).unsqueeze(2)
+        slots = slots.repeat((1, 8, 8, 1))
+
+        # `slots` has shape: [batch_size*num_slots, width_init, height_init, slot_size].
+        x = self.decoder_cnn(slots)
+        # `x` has shape: [batch_size*num_slots, width, height, num_channels+1].
+
+        # Undo combination of slot and batch dimension; split alpha masks.
+        recons, masks = x.view(
+            batch_size, -1, x.shape[1], x.shape[2], x.shape[3]
+        ).split([3, 1], dim=-1)
+        # `recons` has shape: [batch_size, num_slots, width, height, num_channels].
+        # `masks` has shape: [batch_size, num_slots, width, height, 1].
+
+        # Normalize alpha masks over slots.
+        masks = nn.Softmax(dim=1)(masks)
+        recon_combined = torch.sum(recons * masks, dim=1)  # Recombine image.
+        recon_combined = recon_combined.permute(0, 3, 1, 2)
+        # `recon_combined` has shape: [batch_size, width, height, num_channels].
+
+        return recon_combined, recons, masks, slots
+
+
+class SlotAttentionAutoEncoder(VisionModule):
+    """
+    Slot Attention AutoEncoder
+    """
+
+    def __init__(
+        self,
+        input_size: List[int] = [128, 128],  # [224, 224],
+        input_channel: int = 3,
+        channels: List[int] = [64, 64, 64, 64],
+        encoder_kernel_sizes: List[int] = [5, 5, 5, 5],
+        decoder_kernel_sizes: List[int] = [3, 4, 4, 4],
+        strides: List[int] = [1, 1, 1, 1],
+        paddings: List[int] = [2, 2, 2, 2],
+        latent_dim: int = 16,
+        activation: nn.Module = nn.ReLU,
+        dropouts: Optional[List[float]] = None,
+        normalization=nn.BatchNorm2d,
+        output_activation: Optional[nn.Module] = nn.Sigmoid,
+    ) -> None:
+        super(SlotAttentionAutoEncoder, self).__init__()
+
+        self.nets = nn.ModuleDict()
+        self.nets["encoder"] = SlotAttentionEncoder()
+        self.nets["decoder"] = SlotAttentionDecoder()
+
+    def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+        x = self.nets["encoder"](x)
+        x = self.nets["decoder"](x)
+        return x
+
+
+class R3M(VisionModule):
     def __init__(
         self,
         input_channel=3,
-        pretrained=False,
-        input_coord_conv=False,
-    ):
-        """
-        Args:
-            input_channel (int): number of input channels for input images to the network.
-                If not equal to 3, modifies first conv layer in ResNet to handle the number
-                of input channels.
-            pretrained (bool): if True, load pretrained weights for all ResNet layers.
-            input_coord_conv (bool): if True, use a coordinate convolution for the first layer
-                (a convolution where input channels are modified to encode spatial pixel location)
-        """
-        super(ResNet18Conv, self).__init__()
-        net = vision_models.resnet18(pretrained=pretrained)
-
-        if input_coord_conv:
-            net.conv1 = CoordConv2d(input_channel, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        elif input_channel != 3:
-            net.conv1 = nn.Conv2d(input_channel, 64, kernel_size=7, stride=2, padding=3, bias=False)
-
-        # cut the last fc layer
-        self._input_coord_conv = input_coord_conv
-        self._input_channel = input_channel
-        self.nets = torch.nn.Sequential(*(list(net.children())[:-2]))
-
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        assert(len(input_shape) == 3)
-        out_h = int(math.ceil(input_shape[1] / 32.))
-        out_w = int(math.ceil(input_shape[2] / 32.))
-        return [512, out_h, out_w]
-
-    def __repr__(self):
-        """Pretty print network."""
-        header = '{}'.format(str(self.__class__.__name__))
-        return header + '(input_channel={}, input_coord_conv={})'.format(self._input_channel, self._input_coord_conv)
-
-
-class R3MConv(ConvBase):
-    """
-    Base class for ConvNets pretrained with R3M (https://arxiv.org/abs/2203.12601)
-    """
-    def __init__(
-        self,
-        input_channel=3,
-        r3m_model_class='resnet18',
+        r3m_model_class="resnet18",
         freeze=True,
     ):
-        """
-        Using R3M pretrained observation encoder network proposed by https://arxiv.org/abs/2203.12601
-        Args:
-            input_channel (int): number of input channels for input images to the network.
-                If not equal to 3, modifies first conv layer in ResNet to handle the number
-                of input channels.
-            r3m_model_class (str): select one of the r3m pretrained model "resnet18", "resnet34" or "resnet50"
-            freeze (bool): if True, use a frozen R3M pretrained model.
-        """
-        super(R3MConv, self).__init__()
+        super(R3M, self).__init__()
 
         try:
             from r3m import load_r3m
         except ImportError:
-            print("WARNING: could not load r3m library! Please follow https://github.com/facebookresearch/r3m to install R3M")
+            print(
+                "WARNING: could not load r3m library! Please follow https://github.com/facebookresearch/r3m to install R3M"
+            )
 
-        net = load_r3m(r3m_model_class)
+        self.net = load_r3m(r3m_model_class)
+        if freeze:
+            self.net.eval()
 
-        assert input_channel == 3 # R3M only support input image with channel size 3
-        assert r3m_model_class in ["resnet18", "resnet34", "resnet50"] # make sure the selected r3m model do exist
+        assert input_channel == 3  # R3M only support input image with channel size 3
+        assert r3m_model_class in [
+            "resnet18",
+            "resnet34",
+            "resnet50",
+        ]  # make sure the selected r3m model do exist
 
-        # cut the last fc layer
         self._input_channel = input_channel
         self._r3m_model_class = r3m_model_class
         self._freeze = freeze
-        self._input_coord_conv = False
-        self._pretrained = True
 
-        preprocess = nn.Sequential(
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((256, 256)),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+            ]
         )
-        self.nets = Sequential(*([preprocess] + list(net.module.convnet.children())), has_output_shape = False)
-        if freeze:
-            self.nets.freeze()
 
-        self.weight_sum = np.sum([param.cpu().data.numpy().sum() for param in self.nets.parameters()])
-        if freeze:
-            for param in self.nets.parameters():
-                param.requires_grad = False
-
-        self.nets.eval()
-
-    def output_shape(self, input_shape):
+    def preprocess(self, inputs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
-        Function to compute output shape from inputs to this module.
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend
-                on the size of the input, or if they assume fixed size input.
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
+        preprocess inputs to fit the pretrained model
         """
-        assert(len(input_shape) == 3)
-
-        if self._r3m_model_class == 'resnet50':
-            out_dim = 2048
-        else:
-            out_dim = 512
-
-        return [out_dim, 1, 1]
-
-    def __repr__(self):
-        """Pretty print network."""
-        header = '{}'.format(str(self.__class__.__name__))
-        return header + '(input_channel={}, input_coord_conv={}, pretrained={}, freeze={})'.format(self._input_channel, self._input_coord_conv, self._pretrained, self._freeze)
+        assert inputs.ndim == 4
+        assert inputs.shape[1] == self._input_channel
+        assert inputs.dtype in [np.uint8, np.float32, torch.uint8, torch.float32]
+        inputs = TensorUtils.to_tensor(inputs)
+        inputs = self.transform(inputs) * 255.0
+        return inputs
 
 
-class MVPConv(ConvBase):
-    """
-    Base class for ConvNets pretrained with MVP (https://arxiv.org/abs/2203.06173)
-    """
+class MVP(VisionModule):
     def __init__(
         self,
         input_channel=3,
-        mvp_model_class='vitb-mae-egosoup',
+        mvp_model_class="vitb-mae-egosoup",
         freeze=True,
     ):
-        """
-        Using MVP pretrained observation encoder network proposed by https://arxiv.org/abs/2203.06173
-        Args:
-            input_channel (int): number of input channels for input images to the network.
-                If not equal to 3, modifies first conv layer in ResNet to handle the number
-                of input channels.
-            mvp_model_class (str): select one of the mvp pretrained model "vits-mae-hoi", "vits-mae-in", "vits-sup-in", "vitb-mae-egosoup" or "vitl-256-mae-egosoup"
-            freeze (bool): if True, use a frozen MVP pretrained model.
-        """
-        super(MVPConv, self).__init__()
+        super(MVP, self).__init__()
 
         try:
             import mvp
         except ImportError:
-            print("WARNING: could not load mvp library! Please follow https://github.com/ir413/mvp to install MVP.")
+            print(
+                "WARNING: could not load mvp library! Please follow https://github.com/ir413/mvp to install MVP."
+            )
 
         self.nets = mvp.load(mvp_model_class)
         if freeze:
             self.nets.freeze()
 
-        assert input_channel == 3 # MVP only support input image with channel size 3
-        assert mvp_model_class in ["vits-mae-hoi", "vits-mae-in", "vits-sup-in", "vitb-mae-egosoup", "vitl-256-mae-egosoup"] # make sure the selected r3m model do exist
+        assert input_channel == 3  # MVP only support input image with channel size 3
+        assert mvp_model_class in [
+            "vits-mae-hoi",
+            "vits-mae-in",
+            "vits-sup-in",
+            "vitb-mae-egosoup",
+            "vitl-256-mae-egosoup",
+        ]  # make sure the selected r3m model do exist
 
         self._input_channel = input_channel
         self._freeze = freeze
         self._mvp_model_class = mvp_model_class
-        self._input_coord_conv = False
-        self._pretrained = True
 
-        if '256' in mvp_model_class:
+        if "256" in mvp_model_class:
             input_img_size = 256
         else:
             input_img_size = 224
-        self.preprocess = nn.Sequential(
-            transforms.Resize(input_img_size)
+
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize((input_img_size, input_img_size)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225],
+                ),
+            ]
         )
 
-    def forward(self, inputs):
-        x = self.preprocess(inputs)
-        x = self.nets(x)
-        if list(self.output_shape(list(inputs.shape)[1:])) != list(x.shape)[1:]:
-            raise ValueError('Size mismatch: expect size %s, but got size %s' % (
-                str(self.output_shape(list(inputs.shape)[1:])), str(list(x.shape)[1:]))
-            )
-        return x
-
-    def output_shape(self, input_shape):
+    def preprocess(self, inputs: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
         """
-        Function to compute output shape from inputs to this module.
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend
-                on the size of the input, or if they assume fixed size input.
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
+        preprocess inputs to fit the pretrained model
         """
-        assert(len(input_shape) == 3)
-        if 'vitb' in self._mvp_model_class:
-            output_shape = [768]
-        elif 'vitl' in self._mvp_model_class:
-            output_shape = [1024]
-        else:
-            output_shape = [384]
-        return output_shape
-
-    def __repr__(self):
-        """Pretty print network."""
-        header = '{}'.format(str(self.__class__.__name__))
-        return header + '(input_channel={}, input_coord_conv={}, pretrained={}, freeze={})'.format(self._input_channel, self._input_coord_conv, self._pretrained, self._freeze)
+        assert inputs.ndim == 4
+        assert inputs.shape[1] == self._input_channel
+        assert inputs.dtype in [np.uint8, np.float32, torch.uint8, torch.float32]
+        inputs = TensorUtils.to_tensor(inputs)
+        inputs = self.transform(inputs)
+        return inputs
 
 
-class CoordConv2d(nn.Conv2d, Module):
-    """
-    2D Coordinate Convolution
+if __name__ == "__main__":
+    # slot_attention_autoencoder = SlotAttentionAutoEncoder(dict())
 
-    Source: An Intriguing Failing of Convolutional Neural Networks and the CoordConv Solution
-    https://arxiv.org/abs/1807.03247
-    (e.g. adds 2 channels per input feature map corresponding to (x, y) location on map)
-    """
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        padding=0,
-        dilation=1,
-        groups=1,
-        bias=True,
-        padding_mode='zeros',
-        coord_encoding='position',
-    ):
-        """
-        Args:
-            in_channels: number of channels of the input tensor [C, H, W]
-            out_channels: number of output channels of the layer
-            kernel_size: convolution kernel size
-            stride: conv stride
-            padding: conv padding
-            dilation: conv dilation
-            groups: conv groups
-            bias: conv bias
-            padding_mode: conv padding mode
-            coord_encoding: type of coordinate encoding. currently only 'position' is implemented
-        """
+    test_inputs = torch.randn(16, 3, 128, 128)
 
-        assert(coord_encoding in ['position'])
-        self.coord_encoding = coord_encoding
-        if coord_encoding == 'position':
-            in_channels += 2  # two extra channel for positional encoding
-            self._position_enc = None  # position encoding
-        else:
-            raise Exception("CoordConv2d: coord encoding {} not implemented".format(self.coord_encoding))
-        nn.Conv2d.__init__(
-            self,
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            bias=bias,
-            padding_mode=padding_mode
-        )
+    slot_attention_encoder = SlotAttentionEncoder()
+    slot_attention_decoder = SlotAttentionDecoder()
 
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module. 
+    test_outputs = slot_attention_encoder(test_inputs)
+    test_outputs = slot_attention_decoder(test_outputs)
 
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
+    for tensor in test_outputs:
+        print(tensor.shape)
 
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
+    from torchviz import make_dot
 
-        # adds 2 to channel dimension
-        return [input_shape[0] + 2] + input_shape[1:]
+    INPUT_SIZE = 28 * 28
 
-    def forward(self, input):
-        b, c, h, w = input.shape
-        if self.coord_encoding == 'position':
-            if self._position_enc is None:
-                pos_y, pos_x = torch.meshgrid(torch.arange(h), torch.arange(w))
-                pos_y = pos_y.float().to(input.device) / float(h)
-                pos_x = pos_x.float().to(input.device) / float(w)
-                self._position_enc = torch.stack((pos_y, pos_x)).unsqueeze(0)
-            pos_enc = self._position_enc.expand(b, -1, -1, -1)
-            input = torch.cat((input, pos_enc), dim=1)
-        return super(CoordConv2d, self).forward(input)
+    model = NeuralNet()
+    data = torch.randn(1, INPUT_SIZE)
 
+    y = model(data)
 
-class ShallowConv(ConvBase):
-    """
-    A shallow convolutional encoder from https://rll.berkeley.edu/dsae/dsae.pdf
-    """
-    def __init__(self, input_channel=3, output_channel=32):
-        super(ShallowConv, self).__init__()
-        self._input_channel = input_channel
-        self._output_channel = output_channel
-        self.nets = nn.Sequential(
-            torch.nn.Conv2d(input_channel, 64, kernel_size=7, stride=2, padding=3),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(64, 32, kernel_size=1, stride=1, padding=0),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-        )
-
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        assert(len(input_shape) == 3)
-        assert(input_shape[0] == self._input_channel)
-        out_h = int(math.floor(input_shape[1] / 2.))
-        out_w = int(math.floor(input_shape[2] / 2.))
-        return [self._output_channel, out_h, out_w]
-
-
-class Conv1dBase(Module):
-    """
-    Base class for stacked Conv1d layers.
-
-    Args:
-        input_channel (int): Number of channels for inputs to this network
-        activation (None or str): Per-layer activation to use. Defaults to "relu". Valid options are
-            currently {relu, None} for no activation
-        out_channels (list of int): Output channel size for each sequential Conv1d layer
-        kernel_size (list of int): Kernel sizes for each sequential Conv1d layer
-        stride (list of int): Stride sizes for each sequential Conv1d layer
-        conv_kwargs (dict): additional nn.Conv1D args to use, in list form, where the ith element corresponds to the
-            argument to be passed to the ith Conv1D layer.
-            See https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html for specific possible arguments.
-    """
-    def __init__(
-        self,
-        input_channel=1,
-        activation="relu",
-        out_channels=(32, 64, 64),
-        kernel_size=(8, 4, 2),
-        stride=(4, 2, 1),
-        **conv_kwargs,
-    ):
-        super(Conv1dBase, self).__init__()
-
-        # Get activation requested
-        activation = CONV_ACTIVATIONS[activation]
-
-        # Generate network
-        self.n_layers = len(out_channels)
-        layers = OrderedDict()
-        for i in range(self.n_layers):
-            layer_kwargs = {k: v[i] for k, v in conv_kwargs.items()}
-            layers[f'conv{i}'] = nn.Conv1d(
-                in_channels=input_channel,
-                **layer_kwargs,
-            )
-            if activation is not None:
-                layers[f'act{i}'] = activation()
-            input_channel = layer_kwargs["out_channels"]
-
-        # Store network
-        self.nets = nn.Sequential(layers)
-
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module.
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        channels, length = input_shape
-        for i in range(self.n_layers):
-            net = getattr(self.nets, f"conv{i}")
-            channels = net.out_channels
-            length = int((length + 2 * net.padding[0] - net.dilation[0] * (net.kernel_size[0] - 1) - 1) / net.stride[0]) + 1
-        return [channels, length]
-
-    def forward(self, inputs):
-        x = self.nets(inputs)
-        if list(self.output_shape(list(inputs.shape)[1:])) != list(x.shape)[1:]:
-            raise ValueError('Size mismatch: expect size %s, but got size %s' % (
-                str(self.output_shape(list(inputs.shape)[1:])), str(list(x.shape)[1:]))
-            )
-        return x
-
-
-"""
-================================================
-Pooling Networks
-================================================
-"""
-class SpatialSoftmax(ConvBase):
-    """
-    Spatial Softmax Layer.
-
-    Based on Deep Spatial Autoencoders for Visuomotor Learning by Finn et al.
-    https://rll.berkeley.edu/dsae/dsae.pdf
-    """
-    def __init__(
-        self,
-        input_shape,
-        num_kp=32,
-        temperature=1.,
-        learnable_temperature=False,
-        output_variance=False,
-        noise_std=0.0,
-    ):
-        """
-        Args:
-            input_shape (list): shape of the input feature (C, H, W)
-            num_kp (int): number of keypoints (None for not using spatialsoftmax)
-            temperature (float): temperature term for the softmax.
-            learnable_temperature (bool): whether to learn the temperature
-            output_variance (bool): treat attention as a distribution, and compute second-order statistics to return
-            noise_std (float): add random spatial noise to the predicted keypoints
-        """
-        super(SpatialSoftmax, self).__init__()
-        assert len(input_shape) == 3
-        self._in_c, self._in_h, self._in_w = input_shape # (C, H, W)
-
-        if num_kp is not None:
-            self.nets = torch.nn.Conv2d(self._in_c, num_kp, kernel_size=1)
-            self._num_kp = num_kp
-        else:
-            self.nets = None
-            self._num_kp = self._in_c
-        self.learnable_temperature = learnable_temperature
-        self.output_variance = output_variance
-        self.noise_std = noise_std
-
-        if self.learnable_temperature:
-            # temperature will be learned
-            temperature = torch.nn.Parameter(torch.ones(1) * temperature, requires_grad=True)
-            self.register_parameter('temperature', temperature)
-        else:
-            # temperature held constant after initialization
-            temperature = torch.nn.Parameter(torch.ones(1) * temperature, requires_grad=False)
-            self.register_buffer('temperature', temperature)
-
-        pos_x, pos_y = np.meshgrid(
-                np.linspace(-1., 1., self._in_w),
-                np.linspace(-1., 1., self._in_h)
-                )
-        pos_x = torch.from_numpy(pos_x.reshape(1, self._in_h * self._in_w)).float()
-        pos_y = torch.from_numpy(pos_y.reshape(1, self._in_h * self._in_w)).float()
-        self.register_buffer('pos_x', pos_x)
-        self.register_buffer('pos_y', pos_y)
-
-        self.kps = None
-
-    def __repr__(self):
-        """Pretty print network."""
-        header = format(str(self.__class__.__name__))
-        return header + '(num_kp={}, temperature={}, noise={})'.format(
-            self._num_kp, self.temperature.item(), self.noise_std)
-
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        assert(len(input_shape) == 3)
-        assert(input_shape[0] == self._in_c)
-        return [self._num_kp, 2]
-
-    def forward(self, feature):
-        """
-        Forward pass through spatial softmax layer. For each keypoint, a 2D spatial 
-        probability distribution is created using a softmax, where the support is the 
-        pixel locations. This distribution is used to compute the expected value of 
-        the pixel location, which becomes a keypoint of dimension 2. K such keypoints
-        are created.
-
-        Returns:
-            out (torch.Tensor or tuple): mean keypoints of shape [B, K, 2], and possibly
-                keypoint variance of shape [B, K, 2, 2] corresponding to the covariance
-                under the 2D spatial softmax distribution
-        """
-        assert(feature.shape[1] == self._in_c)
-        assert(feature.shape[2] == self._in_h)
-        assert(feature.shape[3] == self._in_w)
-        if self.nets is not None:
-            feature = self.nets(feature)
-
-        # [B, K, H, W] -> [B * K, H * W] where K is number of keypoints
-        feature = feature.reshape(-1, self._in_h * self._in_w)
-        # 2d softmax normalization
-        attention = F.softmax(feature / self.temperature, dim=-1)
-        # [1, H * W] x [B * K, H * W] -> [B * K, 1] for spatial coordinate mean in x and y dimensions
-        expected_x = torch.sum(self.pos_x * attention, dim=1, keepdim=True)
-        expected_y = torch.sum(self.pos_y * attention, dim=1, keepdim=True)
-        # stack to [B * K, 2]
-        expected_xy = torch.cat([expected_x, expected_y], 1)
-        # reshape to [B, K, 2]
-        feature_keypoints = expected_xy.view(-1, self._num_kp, 2)
-
-        if self.training:
-            noise = torch.randn_like(feature_keypoints) * self.noise_std
-            feature_keypoints += noise
-
-        if self.output_variance:
-            # treat attention as a distribution, and compute second-order statistics to return
-            expected_xx = torch.sum(self.pos_x * self.pos_x * attention, dim=1, keepdim=True)
-            expected_yy = torch.sum(self.pos_y * self.pos_y * attention, dim=1, keepdim=True)
-            expected_xy = torch.sum(self.pos_x * self.pos_y * attention, dim=1, keepdim=True)
-            var_x = expected_xx - expected_x * expected_x
-            var_y = expected_yy - expected_y * expected_y
-            var_xy = expected_xy - expected_x * expected_y
-            # stack to [B * K, 4] and then reshape to [B, K, 2, 2] where last 2 dims are covariance matrix
-            feature_covar = torch.cat([var_x, var_xy, var_xy, var_y], 1).reshape(-1, self._num_kp, 2, 2)
-            feature_keypoints = (feature_keypoints, feature_covar)
-
-        if isinstance(feature_keypoints, tuple):
-            self.kps = (feature_keypoints[0].detach(), feature_keypoints[1].detach())
-        else:
-            self.kps = feature_keypoints.detach()
-        return feature_keypoints
-
-
-class SpatialMeanPool(Module):
-    """
-    Module that averages inputs across all spatial dimensions (dimension 2 and after),
-    leaving only the batch and channel dimensions.
-    """
-    def __init__(self, input_shape):
-        super(SpatialMeanPool, self).__init__()
-        assert len(input_shape) == 3 # [C, H, W]
-        self.in_shape = input_shape
-
-    def output_shape(self, input_shape=None):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        return list(self.in_shape[:1]) # [C, H, W] -> [C]
-
-    def forward(self, inputs):
-        """Forward pass - average across all dimensions except batch and channel."""
-        return TensorUtils.flatten(inputs, begin_axis=2).mean(dim=2)
-
-
-class FeatureAggregator(Module):
-    """
-    Helpful class for aggregating features across a dimension. This is useful in 
-    practice when training models that break an input image up into several patches
-    since features can be extraced per-patch using the same encoder and then 
-    aggregated using this module.
-    """
-    def __init__(self, dim=1, agg_type="avg"):
-        super(FeatureAggregator, self).__init__()
-        self.dim = dim
-        self.agg_type = agg_type
-
-    def set_weight(self, w):
-        assert self.agg_type == "w_avg"
-        self.agg_weight = w
-
-    def clear_weight(self):
-        assert self.agg_type == "w_avg"
-        self.agg_weight = None
-
-    def output_shape(self, input_shape):
-        """
-        Function to compute output shape from inputs to this module. 
-
-        Args:
-            input_shape (iterable of int): shape of input. Does not include batch dimension.
-                Some modules may not need this argument, if their output does not depend 
-                on the size of the input, or if they assume fixed size input.
-
-        Returns:
-            out_shape ([int]): list of integers corresponding to output shape
-        """
-        # aggregates on @self.dim, so it is removed from the output shape 
-        return list(input_shape[:self.dim]) + list(input_shape[self.dim+1:])
-
-    def forward(self, x):
-        """Forward pooling pass."""
-        if self.agg_type == "avg":
-            # mean-pooling
-            return torch.mean(x, dim=1)
-        if self.agg_type == "w_avg":
-            # weighted mean-pooling
-            return torch.sum(x * self.agg_weight, dim=1)
-        raise Exception("unexpected agg type: {}".forward(self.agg_type))
+    image = make_dot(y, params=dict(model.named_parameters()))
+    image.format = "png"
+    image.render("NeuralNet")

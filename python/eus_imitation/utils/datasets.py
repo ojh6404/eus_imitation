@@ -5,14 +5,13 @@ to fetch batches from hdf5 files.
 import os
 import h5py
 import numpy as np
+from tqdm import tqdm
 from contextlib import contextmanager
 
 import torch.utils.data
 
 import eus_imitation.utils.file_utils as FileUtils
 import eus_imitation.utils.tensor_utils as TensorUtils
-import eus_imitation.utils.obs_utils as ObsUtils
-import eus_imitation.utils.log_utils as LogUtils
 
 
 class SequenceDataset(torch.utils.data.Dataset):
@@ -114,14 +113,14 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.load_demo_info(filter_by_attribute=self.filter_by_attribute)
 
         # maybe store dataset in memory for fast access
-        if self.hdf5_cache_mode in ["all", "low_dim"]:
+        if self.hdf5_cache_mode in ["all", "float_vector"]:
             obs_keys_in_memory = self.obs_keys
-            if self.hdf5_cache_mode == "low_dim":
-                # only store low-dim observations
-                obs_keys_in_memory = []
-                for k in self.obs_keys:
-                    if ObsUtils.key_is_obs_modality(k, "low_dim"):
-                        obs_keys_in_memory.append(k)
+            if self.hdf5_cache_mode == "float_vector":
+                # only store FloatVector observations
+                obs_keys_in_memory = [] # TODO
+            #     for k in self.obs_keys:
+            #         if ObsUtils.key_is_obs_modality(k, "low_dim"):
+            #             obs_keys_in_memory.append(k)
             self.obs_keys_in_memory = obs_keys_in_memory
 
             self.hdf5_cache = self.load_dataset_in_memory(
@@ -137,7 +136,8 @@ class SequenceDataset(torch.utils.data.Dataset):
                 # "low-dim" since image observations require calls to getitem anyways.
                 print("SequenceDataset: caching get_item calls...")
                 self.getitem_cache = [
-                    self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))
+                    # self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))
+                    self.get_item(i) for i in tqdm(range(len(self)))
                 ]
 
                 # don't need the previous cache anymore
@@ -294,7 +294,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         """
         all_data = dict()
         print("SequenceDataset: loading dataset into memory...")
-        for ep in LogUtils.custom_tqdm(demo_list):
+        # for ep in LogUtils.custom_tqdm(demo_list):
+        for ep in tqdm(demo_list):
             all_data[ep] = {}
             all_data[ep]["attrs"] = {}
             all_data[ep]["attrs"]["num_samples"] = hdf5_file[
@@ -591,42 +592,3 @@ class SequenceDataset(torch.utils.data.Dataset):
         `DataLoader` documentation, for more info.
         """
         return None
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="data/dataset.hdf5")
-    args = parser.parse_args()
-
-    obs_keys = ["image", "robot_ee_pos"]
-    dataset_keys = ["actions"]
-
-    test_dataset = SequenceDataset(
-        hdf5_path="data/dataset.hdf5",
-        obs_keys=obs_keys,
-        dataset_keys=dataset_keys,
-        # hdf5_cache_mode="all",
-    )
-
-    # print(test_dataset[0]["obs"]["image"].shape)
-    print(test_dataset[0].keys())
-
-    for key in test_dataset[0].keys():
-        print(key, test_dataset[0][key])
-
-    # hdf5_path,
-    # obs_keys,
-    # dataset_keys,
-    # frame_stack=1,
-    # seq_length=1,
-    # pad_frame_stack=True,
-    # pad_seq_length=True,
-    # get_pad_mask=False,
-    # goal_mode=None,
-    # hdf5_cache_mode=None,
-    # hdf5_use_swmr=True,
-    # hdf5_normalize_obs=False,
-    # filter_by_attribute=None,
-    # load_next_obs=True,
