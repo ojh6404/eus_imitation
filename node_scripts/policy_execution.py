@@ -67,10 +67,19 @@ class PolicyExecutorNode(object):
 
         self.tunable = HSVBlurCropResolFilter.from_yaml(rospack.get_path("eus_imitation") + "/config/image_filter.yaml")
 
+        # self.obs_subs = OrderedDict()
+        # for key in self.obs_keys:
+        #     self.obs_subs[key] = message_filters.Subscriber(self.topic_names[self.obs_keys.index(key)], eval(self.obs_dict[key].msg_type))
+        # self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()), 10, 0.1)
+        # self.obs_ts.registerCallback(self.obs_callback)
+
+
+        # for test
         self.obs_subs = OrderedDict()
         for key in self.obs_keys:
             self.obs_subs[key] = message_filters.Subscriber(self.topic_names[self.obs_keys.index(key)], eval(self.obs_dict[key].msg_type))
-        self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()), 10, 0.1)
+        self.action_sub = message_filters.Subscriber("/eus_imitation/robot_action", Float32MultiArrayStamped)
+        self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()) + [self.action_sub], 10, 0.1)
         self.obs_ts.registerCallback(self.obs_callback)
 
         self.action_pub = rospy.Publisher("/eus_imitation/policy_action", Float32MultiArrayStamped, queue_size=1)
@@ -91,7 +100,7 @@ class PolicyExecutorNode(object):
 
 
     def obs_callback(self, *msgs):
-        assert len(msgs) == len(self.obs_keys)
+        # assert len(msgs) == len(self.obs_keys)
 
         for key, msg in zip(self.obs_keys, msgs):
             if self.obs_dict[key].msg_type == "Image":
@@ -108,9 +117,18 @@ class PolicyExecutorNode(object):
             self.rnn_state = self.model.get_rnn_init_state(batch_size=1, device=self.device)
 
         with torch.no_grad():
-            predicted_action, self.rnn_state = self.model.forward_step(self.obs_data, rnn_state=self.rnn_state)
-        predicted_action = (TensorUtils.squeeze(TensorUtils.to_numpy(predicted_action), 0) * self.action_std) + self.action_mean
+            predicted_action, self.rnn_state = self.model.forward_step(self.obs_data, rnn_state=self.rnn_state, unnormalize=True)
+        # predicted_action = (TensorUtils.squeeze(TensorUtils.to_numpy(predicted_action), 0) * self.action_std) + self.action_mean
+        predicted_action = (TensorUtils.squeeze(TensorUtils.to_numpy(predicted_action), 0))
         predicted_action = predicted_action.tolist()
+        print("predicted_action: ", predicted_action)
+        print("real action", msgs[-1].data)
+
+        """
+        predicted_action:  [465.9157409667969, -241.9090576171875, 881.3753051757812, 0.0038826465606689453]
+        real action (475.433837890625, -231.9774169921875, 883.0661010742188, 0.0)
+        """
+
 
         action_msg = Float32MultiArrayStamped()
         action_msg.header.stamp = rospy.Time.now()

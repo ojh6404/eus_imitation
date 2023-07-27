@@ -94,9 +94,25 @@ class RNNActor(Actor):
         )
         self.rnn_kwargs = cfg.policy.rnn.get("kwargs", {})
         self.action_dim = cfg.actions.dim
-        self.action_modality = eval(cfg.actions.modality)
 
-        self.normalize_cfg = edict(yaml.safe_load(open("./config/normalize.yaml", "r")))
+        print("action dim: ", self.action_dim)
+
+        self.normalize = True
+        if self.normalize:
+            self.normalize_cfg = edict(yaml.safe_load(open("./config/normalize.yaml", "r")))
+            action_max = np.array(self.normalize_cfg.action.max).astype(np.float32)
+            action_min = np.array(self.normalize_cfg.action.min).astype(np.float32)
+            action_mean = (action_max + action_min) / 2.0
+            action_std = (action_max - action_min) / 2.0
+
+        self.action_modality = eval(cfg.actions.modality)(name="action",shape=self.action_dim, mean=action_mean, std=action_std)
+
+
+        print(self.normalize_cfg)
+        action_normalize_cfg = self.normalize_cfg.action
+
+        print("action modality: ", self.action_modality)
+
 
         self.mlp_layer_dims = cfg.policy.mlp_layer_dims
         self.mlp_activation = eval("nn." + cfg.policy.get("mlp_activation", "ReLU"))
@@ -104,6 +120,7 @@ class RNNActor(Actor):
         self.nets = nn.ModuleDict()
 
         self._build_network()
+
 
 
 
@@ -137,6 +154,7 @@ class RNNActor(Actor):
         obs_dict: Dict[str, torch.Tensor],
         rnn_state: Optional[torch.Tensor] = None,
         return_rnn_state: bool = False,
+        unnormalize: bool = False,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         obs_dict is expected to be a dictionary with keys of self.obs_keys
@@ -147,13 +165,16 @@ class RNNActor(Actor):
             inputs=obs_latents, rnn_state=rnn_state, return_rnn_state=True
         )
 
+        if unnormalize:
+            outputs = self.action_modality.unprocess_obs(outputs)
+
         if return_rnn_state:
             return outputs, rnn_state
         else:
             return outputs
 
     def forward_step(
-        self, obs_dict: Dict[str, torch.Tensor], rnn_state: torch.Tensor
+            self, obs_dict: Dict[str, torch.Tensor], rnn_state: torch.Tensor, unnormalize: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         obs_dict is expected to be a dictionary with keys of self.obs_keys
@@ -161,6 +182,8 @@ class RNNActor(Actor):
         """
         obs_latents = self.nets["obs_encoder"](obs_dict)
         output, rnn_state = self.nets["rnn"].forward_step(obs_latents, rnn_state)
+        if unnormalize:
+            output = self.action_modality.unprocess_obs(output)
         return output, rnn_state
 
 
