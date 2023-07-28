@@ -36,7 +36,7 @@ class PolicyExecutorNode(object):
         rospy.init_node("policy_execution")
         rospack = rospkg.RosPack()
         self.rospack = rospack
-        cfg = edict(yaml.safe_load(open(self.rospack.get_path("eus_imitation") + "/config/config.yaml", "r"))).actor
+        cfg = edict(yaml.safe_load(open(self.rospack.get_path("eus_imitation") + "/config/config.yaml", "r")))
 
         self.cfg = cfg
 
@@ -63,7 +63,7 @@ class PolicyExecutorNode(object):
 
 
 
-        self.rnn_seq_len = cfg.policy.rnn.seq_length
+        self.rnn_seq_len = cfg.network.policy.rnn.seq_length
 
         self.tunable = HSVBlurCropResolFilter.from_yaml(rospack.get_path("eus_imitation") + "/config/image_filter.yaml")
 

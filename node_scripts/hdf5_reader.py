@@ -15,7 +15,7 @@ def main(args):
 
     traj_lengths = []
     for ep in demos:
-        traj_lengths.append(len(f["data"][ep]["actions"]))
+        traj_lengths.append(len(f["data"][ep]["action"]))
 
     total_traj_length = np.sum(traj_lengths)
 
@@ -29,7 +29,7 @@ def main(args):
     print("Trajectory length max: {}".format(np.max(traj_lengths)))
     print("Max length traj index: {}".format(np.argmax(traj_lengths)))
     print("Observations: {}".format(f["data"][demos[0]]["obs"].keys()))
-    print("Actions: {}".format(f["data"][demos[0]]["actions"]))
+    print("Actions: {}".format(f["data"][demos[0]]["action"]))
     print("=============================")
 
     if args.verbose:
@@ -61,7 +61,7 @@ def main(args):
         print("Actions min: {}".format(f["data"].attrs["action_min"]))
         print("Actions scale: {}".format(f["data"].attrs["action_scale"]))
         print("Actions bias: {}".format(f["data"].attrs["action_bias"]))
-        print("First data: {}".format(f["data"][demos[0]]["actions"][0]))
+        print("First data: {}".format(f["data"][demos[0]]["action"][0]))
         print("")
 
         for attr_name in f["data"].attrs.keys():

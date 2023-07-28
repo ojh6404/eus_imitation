@@ -1,7 +1,7 @@
 CropResizer:
-  x_max: 425
-  x_min: 186
-  y_max: 546
+  x_max: 430
+  x_min: 180
+  y_max: 544
   y_min: 97
 GaussianBlurFilter:
   kernel_width: 0
