@@ -29,10 +29,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
-        config = edict(yaml.safe_load(f)).actor
+        config = edict(yaml.safe_load(f))
 
     obs_keys = ["image", "robot_ee_pos"]
-    dataset_keys = ["actions"]
+    dataset_keys = ["action"]
     batch_size = args.batch_size
     num_epochs = args.num_epochs
     gradient_steps_per_epoch = 100
@@ -108,7 +108,7 @@ if __name__ == "__main__":
             start_time = time.time()
             prediction = model(batch["obs"])  # [B, T, D]
             end_time = time.time()
-            action = (batch["actions"] - action_mean) / action_std
+            action = (batch["action"] - action_mean) / action_std
 
             loss = nn.MSELoss()(prediction, action)
 
@@ -183,14 +183,14 @@ if __name__ == "__main__":
 
     random_batch = TensorUtils.to_device(next(data_loader_iter), device)
 
-    actions_of_first_batch = random_batch["actions"][0]  # [T, D]
+    actions_of_first_batch = random_batch["action"][0]  # [T, D]
     print("actions_of_first_batch shape: ", actions_of_first_batch.shape)  # [T, D]
 
     # testing
     model.eval()
     with torch.no_grad():
         prediction = model(random_batch["obs"])
-        actions = random_batch["actions"]
+        action = random_batch["action"]
 
     prediction_of_first_batch = prediction[0]  # [T, D]
     print(

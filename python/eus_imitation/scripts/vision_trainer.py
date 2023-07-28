@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     obs_keys = ["image"]
-    dataset_keys = ["actions"]
+    dataset_keys = ["action"]
 
     dataset = SequenceDataset(
         hdf5_path=args.dataset,

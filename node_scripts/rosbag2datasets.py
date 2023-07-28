@@ -45,11 +45,11 @@ def main(args):
 
     # get dataset config
     mf_cfg = config.dataset.rosbag.message_filters
-    obs_cfg = config.dataset.data.obs
-    action_cfg = config.dataset.data.actions
+    obs_cfg = config.obs
+    action_cfg = config.action
 
     topic_name_to_obs_name = {value.topic_name: key for key, value in obs_cfg.items()}
-    action_topic_name = config.dataset.data.actions.topic_name
+    action_topic_name = action_cfg.topic_name
 
     # create dict of subscriber
     subscribers = OrderedDict()
@@ -143,7 +143,6 @@ def main(args):
     for obs_name in topic_name_to_obs_name.values():
         # only for FloatVectorModality
         if obs_cfg[obs_name].modality == "FloatVectorModality":
-            print("obs modality: {}".format(obs_cfg[obs_name].modality))
             obs_max_buf[obs_name] = None
             obs_min_buf[obs_name] = None
             obs_scale_buf[obs_name] = None
@@ -196,7 +195,7 @@ def main(args):
 
         action_data = np.array(action_buf)
         demo.create_dataset(
-            "actions",
+            "action",
             data=action_data,
             dtype=action_data.dtype,
         )
@@ -249,9 +248,9 @@ def main(args):
         for i in range(len(rosbags)):
             # scale actions to [-1, 1]
             demo = data["demo_{}".format(i)]
-            actions = demo["actions"]
-            actions_scaled = (actions - action_bias) / action_scale
-            demo["actions"][:] = actions_scaled
+            action = demo["action"]
+            action_scaled = (action - action_bias) / action_scale
+            demo["action"][:] = action_scaled
 
             # scale observations to [-1, 1] only for FloatVectorModality
             for obs_name in obs_max_buf.keys():

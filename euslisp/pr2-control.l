@@ -74,6 +74,9 @@
           larm-gripper-status-topic-name
           rarm-gripper-status-topic-name
 
+          larm-gripper-position
+          rarm-gripper-position
+
           rate ;; control rate
 
           larm-enable
@@ -175,11 +178,11 @@
     (send self :set-val 'tfl (instance ros::transform-listener :init))
 
     (send self :set-val 'vrbase-frame-id (format nil "lighthouse_LHB_~A" "8E924CC3"))
-    ;; (send self :set-arm-val :larm :controller-device-id "FD35BD42")
-    ;; (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
+    (send self :set-arm-val :larm :controller-device-id "FD35BD42")
+    (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
 
-    (send self :set-arm-val :larm :controller-device-id "F7AFBF47")
-    (send self :set-arm-val :rarm :controller-device-id "FD35BD42")
+    ;; (send self :set-arm-val :larm :controller-device-id "F7AFBF47")
+    ;; (send self :set-arm-val :rarm :controller-device-id "FD35BD42")
 
 
     (send self :set-val 'tracking nil)
@@ -267,7 +270,7 @@
   (:init-pose ()
     (send self :load-init-pose)
     (send self :update-robot-model)
-    (send robot-interface :angle-vector init-pose 5000)
+    (send robot-interface :angle-vector init-pose 3000)
     (send self :stop-grasp :larm :wait t)
     (send self :stop-grasp :rarm :wait t)
     (send robot-interface :wait-interpolation))
@@ -353,10 +356,13 @@
       (t nil)))
   (:start-grasp (arm &key (wait nil))
      (send robot-interface :start-grasp arm :wait wait)
-     (send self :set-arm-val arm :grasp 1))
+     ;; (send self :set-arm-val arm :grasp 1)
+     )
   (:stop-grasp (arm &key (wait nil))
      (send robot-interface :stop-grasp arm :wait wait)
-     (send self :set-arm-val arm :grasp 0))
+     ;; (send self :set-arm-val arm :grasp 0)
+
+     )
   (:calib-controller (arm)
     (let (tf-vrbase->controllerref tf-base->gripperref)
       (ros::ros-info "Calibrating controller ~A" arm)
@@ -418,6 +424,7 @@
                                       :rot (send tf-controllerref->controller :rot)))
           (target-coords (send tf-gripperref->gripper :transform (send tf-base->gripperref :copy-worldcoords) :world)))
       target-coords))
+
 
   ;; (:enable (&key (torso t))
   ;;   (send self :set-val 'loop-enable t)
@@ -588,9 +595,9 @@
             (send self :update-robot-model)
             (ros::ros-info "Initiailized")))))
   (:gripper-cb (arm &key (wait nil) (button :trigger))
-    (if (and (send self :get-arm-val arm :enable) (send self :get-arm-val arm button))
-        (send self :start-grasp arm :wait wait)
-        (send self :stop-grasp arm :wait wait)))
+    (if (send self :get-arm-val arm button)
+        (send self :set-arm-val arm :grasp 1)
+        (send self :set-arm-val arm :grasp 0)))
   (:remove-cb (&key (button :menu))
     (let (req res (remove-button-p
             (send self :controller-button-p :larm button :button-toggle t)))
@@ -626,34 +633,37 @@
     (send robot-action-msg :data robot-action-data)
     (send robot-action-msg :header :stamp (ros::time-now))
     (ros::publish robot-action-topic-name robot-action-msg))
+
+  ;; (:robot-action-publisher (robot-action rot)
+  ;;   (if rot
+  ;;       (progn
+  ;;         (setq rpy-rots (elt (rpy-angle (send robot-action :worldrot)) 0))
+  ;;         (setq robot-action-data (concatenate float-vector (send robot-action :worldpos) rpy-rots (float-vector (send self :get-arm-val :rarm :grasp)))))
+  ;;       (setq robot-action-data (concatenate float-vector (send robot-action :worldpos) (float-vector (send self :get-arm-val :rarm :grasp)))))
+  ;;   (setq robot-action-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+  ;;   (send robot-action-msg :data robot-action-data)
+  ;;   (send robot-action-msg :header :stamp (ros::time-now))
+  ;;   (ros::publish robot-action-topic-name robot-action-msg))
+
+
+
   (:main-loop-step (&key (arm :rarm) (imitation nil) (rot nil))
-      (let ((ref-coords) (target-pos) (target-rpy) (robot-action) (robot-state))
-      ;; (unless imitation
-      ;;   (send self :button-cb arm))
+    (let ((ref-coords) (target-pos) (target-rpy) (robot-action) (robot-state))
+      (send self :button-cb arm)
+      (send self :update-current-end-coords)
+      (send *irtviewer* :draw-objects)
+      (setf robot-state (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords)) ;; robot state
 
-      (if imitation
-          (progn
-          (setq gripper-action (if (> (elt robot-action-real 3) 0.7) 1 0))
-          (if (> gripper-action 0.5)
-              (send self :start-grasp arm :wait nil)
-              (send self :stop-grasp arm :wait nil)))
-          (send self :button-cb arm))
-
-
-      ;; (send self :button-cb arm)
       (if (send self :get-arm-val arm :enable)
         (progn
-          (send self :update-current-end-coords)
-          (setf robot-state (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords)) ;; 3 + 1
-
           (unless rot
-            (setf target-rpy (float-vector pi/2 pi/2 -pi/2))
-            )
+            (setf target-rpy (float-vector pi/2 pi/2 -pi/2)))
 
           (if imitation
             (if rot
-              (setf ref-coords (make-coords :pos (subseq robot-action-real 0 3) :rpy (subseq robot-action-real 3 6)))
-              (setf ref-coords (make-coords :pos (subseq robot-action-real 0 3) :rpy target-rpy)))
+              (setf ref-coords (make-coords :pos (subseq robot-action-real 0 3) :rpy (subseq robot-action-real 3 6))) ;; rotational
+              (setf ref-coords (make-coords :pos (subseq robot-action-real 0 3) :rpy target-rpy))) ;; fixed rpy
+
             (setf ref-coords (send (send self :get-target-coords arm :pos-scale 1.0) :copy-worldcoords)))
 
           (setf target-pos (send ref-coords :worldpos))
@@ -661,15 +671,38 @@
           (unless rot
             (setf target-rpy (float-vector pi/2 pi/2 -pi/2))
             )
+
           (setf target-coords (make-coords :pos target-pos :rpy target-rpy))
+
           (send self :inverse-kinematics arm target-coords)
+
           (setf robot-action target-coords) ;; or joint angles
+
           (send self :robot-state-publisher robot-state rot) ;; state publisher
           (unless imitation
             (send self :robot-action-publisher robot-action rot))
-          (send self :angle-command-vector arm :torso nil)))))
+
+          ;; (print (send robot-interface :gripper arm :position)) ;; gripper position
+
+
+
+
+          ;; execute action
+          (if imitation
+              (setq gripper-action (if (> (elt robot-action-real 3) 0.5) 1 0))
+              (setq gripper-action (send self :get-arm-val arm :grasp)))
+
+            (send self :angle-command-vector arm :torso nil)
+            (if (> gripper-action 0.5)
+                (send self :start-grasp arm :wait nil)
+                (send self :stop-grasp arm :wait nil))
+
+
+))
+
+
+          ))
   (:main-loop (&key (arm :rarm) (imitation nil) (rot nil))
-    (ros::rate rate)
     (send self :update-current-end-coords)
     ;; (if imitation
     ;;     (progn
@@ -678,12 +711,20 @@
     ;;       (setf robot-action-real (concatenate float-vector (send (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords) :worldpos ) (float-vector (send self :get-arm-val arm :grasp)))) ;; 3 + 1
     ;;       (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (setq robot-action-real (send msg :data))) 1)))
 
-    ;; (send *ri* :speak "I'm ready to start." :wait nil :volume 0.6)
-
+    (send *ri* :speak "I'm ready to start." :wait nil :volume 0.6)
     (while (ros::ok)
+      (ros::rate rate)
+      (setq start-time (unix:gettimeofday))
       (send self :main-loop-step :arm arm :imitation imitation :rot rot)
       (ros::spin-once)
-      (ros::sleep)))
+      (ros::sleep)
+      (setq end-time (unix:gettimeofday))
+      (setq wait-time (+ (* (- (elt end-time 0) (elt start-time 0)) 1000)
+                          (/ (- (elt end-time 1) (elt start-time 1)) 1000.0)))
+      (print wait-time)
+
+
+      ))
 )
 
 (defun init-pr2-imitator ()

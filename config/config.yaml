@@ -53,6 +53,36 @@ actor:
     msg_type: "Float32MultiArrayStamped"
     dim: 4
 
+
+obs: # input into policy
+  image:
+    modality: "ImageModality"
+    topic_name: "/kinect_head/rgb/image_rect_color/compressed"
+    msg_type: "CompressedImage"
+    obs_encoder:
+      normalize: True
+      model: "VariationalAutoEncoder"
+      model_path: "./vae_model.pth"
+      pretrained: True
+      input_dim: [224, 224, 3]
+      output_dim: 16
+      has_decoder: True
+  robot_ee_pos:
+    modality: "FloatVectorModality"
+    topic_name: "/eus_imitation/robot_state"
+    msg_type: "Float32MultiArrayStamped"
+    obs_encoder:
+      normalize: True
+      input_dim: 4
+      output_dim: 4
+      layer_dims: null
+      activation: "ReLU" # [ReLU, Tanh...]
+action:
+  modality: "FloatVectorModality"
+  topic_name: "/eus_imitation/robot_action"
+  msg_type: "Float32MultiArrayStamped"
+  dim: 4
+
 dataset:
   rosbag:
     message_filters:

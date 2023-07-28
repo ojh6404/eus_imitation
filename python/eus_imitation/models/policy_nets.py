@@ -45,7 +45,7 @@ class MLPActor(Actor):
         self.obs = cfg.obs
         self.policy_type = cfg.policy.type
 
-        self.action_dim = cfg.actions.dim
+        self.action_dim = cfg.action.dim
         self.mlp_layer_dims = cfg.policy.mlp_layer_dims
         self.mlp_activation = eval("nn." + cfg.policy.get("mlp_activation", "ReLU"))
 
@@ -75,8 +75,8 @@ class MLPActor(Actor):
         like {"image": image_obs, "robot_ee_pos": robot_ee_pos_obs}
         """
         obs_latents = self.nets["obs_encoder"](obs_dict)
-        actions = self.nets["mlp_decoder"](obs_latents)
-        return actions
+        action = self.nets["mlp_decoder"](obs_latents)
+        return action
 
 
 class RNNActor(Actor):
@@ -85,15 +85,15 @@ class RNNActor(Actor):
         self.cfg = cfg
         self.obs = cfg.obs
 
-        self.policy_type = cfg.policy.type
-        self.rnn_type = cfg.policy.rnn.type
-        self.rnn_num_layers = cfg.policy.rnn.rnn_num_layers
-        self.rnn_hidden_dim = cfg.policy.rnn.rnn_hidden_dim
+        self.policy_type = cfg.network.policy.model
+        self.rnn_type = cfg.network.policy.rnn.type
+        self.rnn_num_layers = cfg.network.policy.rnn.rnn_num_layers
+        self.rnn_hidden_dim = cfg.network.policy.rnn.rnn_hidden_dim
         self.rnn_input_dim = sum(
             [self.obs[key]["obs_encoder"]["output_dim"] for key in self.obs.keys()]
         )
-        self.rnn_kwargs = cfg.policy.rnn.get("kwargs", {})
-        self.action_dim = cfg.actions.dim
+        self.rnn_kwargs = cfg.network.policy.rnn.get("kwargs", {})
+        self.action_dim = cfg.action.dim
 
         print("action dim: ", self.action_dim)
 
@@ -105,23 +105,12 @@ class RNNActor(Actor):
             action_mean = (action_max + action_min) / 2.0
             action_std = (action_max - action_min) / 2.0
 
-        self.action_modality = eval(cfg.actions.modality)(name="action",shape=self.action_dim, mean=action_mean, std=action_std)
-
-
-        print(self.normalize_cfg)
-        action_normalize_cfg = self.normalize_cfg.action
-
-        print("action modality: ", self.action_modality)
-
-
-        self.mlp_layer_dims = cfg.policy.mlp_layer_dims
-        self.mlp_activation = eval("nn." + cfg.policy.get("mlp_activation", "ReLU"))
+        self.action_modality = eval(cfg.action.modality)(name="action",shape=self.action_dim, mean=action_mean, std=action_std)
+        self.mlp_layer_dims = cfg.network.policy.mlp_layer_dims
+        self.mlp_activation = eval("nn." + cfg.network.policy.get("mlp_activation", "ReLU"))
 
         self.nets = nn.ModuleDict()
-
         self._build_network()
-
-
 
 
     def _build_network(self) -> None:
@@ -147,7 +136,6 @@ class RNNActor(Actor):
 
     def get_rnn_init_state(self, batch_size: int, device: torch.device) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         return self.nets["rnn"].get_rnn_init_state(batch_size, device)
-
 
     def forward(
         self,
@@ -207,11 +195,11 @@ if __name__ == "__main__":
     with open(args.config, "r") as f:
         actor_cfg = edict(yaml.safe_load(f)).actor
 
-    from eus_imitation.util.datasets import SequenceDataset
+    from eus_imitation.utils.datasets import SequenceDataset
     from torch.utils.data import DataLoader
 
     obs_keys = ["image", "robot_ee_pos"]
-    dataset_keys = ["actions"]
+    dataset_keys = ["action"]
     dataset = SequenceDataset(
         hdf5_path=args.dataset,
         obs_keys=obs_keys,  # observations we want to appear in batches
