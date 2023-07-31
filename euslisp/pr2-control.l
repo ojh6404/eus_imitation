@@ -654,6 +654,8 @@
       (send *irtviewer* :draw-objects)
       (setf robot-state (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords)) ;; robot state
 
+      ;; (print (list "robot-action-real" robot-action-real))
+
       (if (send self :get-arm-val arm :enable)
         (progn
           (unless rot
@@ -704,12 +706,12 @@
           ))
   (:main-loop (&key (arm :rarm) (imitation nil) (rot nil))
     (send self :update-current-end-coords)
-    ;; (if imitation
-    ;;     (progn
-    ;;       (send self :set-arm-val arm :enable t)
-    ;;       (send self :init-pose)
-    ;;       (setf robot-action-real (concatenate float-vector (send (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords) :worldpos ) (float-vector (send self :get-arm-val arm :grasp)))) ;; 3 + 1
-    ;;       (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (setq robot-action-real (send msg :data))) 1)))
+    (if imitation
+        (progn
+          (send self :set-arm-val arm :enable t)
+          (send self :init-pose)
+          (setf robot-action-real (concatenate float-vector (send (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords) :worldpos ) (float-vector 0.0))) ;; 3 + 1
+          (ros::subscribe "/eus_imitation/policy_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (setq robot-action-real (send msg :data))) 1)))
 
     (send *ri* :speak "I'm ready to start." :wait nil :volume 0.6)
     (while (ros::ok)

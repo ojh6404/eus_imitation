@@ -23,9 +23,9 @@ from std_msgs.msg import Header
 from sensor_msgs.msg import Image, CompressedImage, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
 
-import eus_imitation.utils.tensor_utils as TensorUtils
-from eus_imitation.models.policy_nets import MLPActor, RNNActor
-from eus_imitation.utils.obs_utils import ImageModality, FloatVectorModality
+import imitator.utils.tensor_utils as TensorUtils
+from imitator.models.policy_nets import MLPActor, RNNActor
+from imitator.utils.obs_utils import ImageModality, FloatVectorModality
 
 
 
@@ -67,19 +67,21 @@ class PolicyExecutorNode(object):
 
         self.tunable = HSVBlurCropResolFilter.from_yaml(rospack.get_path("eus_imitation") + "/config/image_filter.yaml")
 
-        # self.obs_subs = OrderedDict()
-        # for key in self.obs_keys:
-        #     self.obs_subs[key] = message_filters.Subscriber(self.topic_names[self.obs_keys.index(key)], eval(self.obs_dict[key].msg_type))
-        # self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()), 10, 0.1)
-        # self.obs_ts.registerCallback(self.obs_callback)
-
-
-        # for test
         self.obs_subs = OrderedDict()
         for key in self.obs_keys:
             self.obs_subs[key] = message_filters.Subscriber(self.topic_names[self.obs_keys.index(key)], eval(self.obs_dict[key].msg_type))
-        self.action_sub = message_filters.Subscriber("/eus_imitation/robot_action", Float32MultiArrayStamped)
-        self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()) + [self.action_sub], 10, 0.1)
+        self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()), 10, 0.1)
+        self.obs_ts.registerCallback(self.obs_callback)
+
+
+        # for test
+        # self.obs_subs = OrderedDict()
+        # for key in self.obs_keys:
+        #     self.obs_subs[key] = message_filters.Subscriber(self.topic_names[self.obs_keys.index(key)], eval(self.obs_dict[key].msg_type))
+        # self.action_sub = message_filters.Subscriber("/eus_imitation/robot_action", Float32MultiArrayStamped)
+        # self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()) + [self.action_sub], 10, 0.1)
+
+        self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()), 10, 0.1)
         self.obs_ts.registerCallback(self.obs_callback)
 
         self.action_pub = rospy.Publisher("/eus_imitation/policy_action", Float32MultiArrayStamped, queue_size=1)
@@ -122,7 +124,7 @@ class PolicyExecutorNode(object):
         predicted_action = (TensorUtils.squeeze(TensorUtils.to_numpy(predicted_action), 0))
         predicted_action = predicted_action.tolist()
         print("predicted_action: ", predicted_action)
-        print("real action", msgs[-1].data)
+        # print("real action", msgs[-1].data)
 
         """
         predicted_action:  [465.9157409667969, -241.9090576171875, 881.3753051757812, 0.0038826465606689453]

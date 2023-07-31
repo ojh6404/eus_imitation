@@ -22,7 +22,7 @@ from cv_bridge import CvBridge
 
 from sensor_msgs.msg import CompressedImage, Image, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
-from eus_imitation.utils.rosbag_utils import RosbagUtils, PatchTimer
+from imitator.utils.rosbag_utils import RosbagUtils, PatchTimer
 
 # for no roscore
 rospy.Time = PatchTimer

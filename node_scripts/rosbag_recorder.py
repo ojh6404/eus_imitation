@@ -14,7 +14,7 @@ from std_srvs.srv import Trigger, TriggerResponse
 from sound_play.libsoundplay import SoundClient
 
 
-from eus_imitation.utils.rosbag_utils import RosbagUtils
+from imitator.utils.rosbag_utils import RosbagUtils
 
 
 class RosbagRecorderNode(object):
