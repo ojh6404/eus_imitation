@@ -23,6 +23,7 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
 from imitator.utils.rosbag_utils import RosbagUtils, PatchTimer
+import imitator.utils.file_utils as FileUtils
 
 # for no roscore
 rospy.Time = PatchTimer
@@ -36,17 +37,14 @@ yaml.add_representer(
 
 
 def main(args):
-    with open(args.config, "r") as f:
-        print("Processing config...")
-        config = edict(yaml.safe_load(f))
-
+    config = FileUtils.get_config_from_project_name(args.project_name)
     rosbags = RosbagUtils.get_rosbag_abs_paths(args.rosbag_dir)
     print("Found {} rosbags".format(len(rosbags)))
 
     # get dataset config
-    mf_cfg = config.dataset.rosbag.message_filters
+    mf_cfg = config.ros.message_filters
     obs_cfg = config.obs
-    action_cfg = config.action
+    action_cfg = config.actions
 
     topic_name_to_obs_name = {value.topic_name: key for key, value in obs_cfg.items()}
     action_topic_name = action_cfg.topic_name
@@ -91,10 +89,10 @@ def main(args):
                         tunable.launch_window()
                         tunable.start_tuning(data)
                         pprint.pprint(tunable.export_dict())
-
                         tunable.dump_yaml(
                             os.path.join(
-                                os.path.dirname(args.config), "image_filter.yaml"
+                                FileUtils.get_config_folder(args.project_name),
+                                "image_filter.yaml",
                             )
                         )
                         data_file.close()
@@ -102,7 +100,8 @@ def main(args):
                     else:
                         tunable = HSVBlurCropResolFilter.from_yaml(
                             os.path.join(
-                                os.path.dirname(args.config), "image_filter.yaml"
+                                FileUtils.get_config_folder(args.project_name),
+                                "image_filter.yaml",
                             )
                         )
                         data = tunable(data)
@@ -116,24 +115,20 @@ def main(args):
     ts.registerCallback(callback)
 
     # create directory if not exist
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+    output_dir = os.path.join(FileUtils.get_project_folder(args.project_name), "data")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-    data_file = h5py.File(os.path.join(args.output_dir, "dataset.hdf5"), mode="w")
+    data_file = h5py.File(os.path.join(output_dir, "dataset.hdf5"), mode="w")
     data = data_file.create_group("data")
     data.attrs["num_demos"] = len(rosbags)
     data.attrs["num_obs"] = len(topic_name_to_obs_name)
     data.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     data.attrs["config"] = json.dumps(config.dataset, indent=4)
-    data.attrs["env_args"] = json.dumps(config.dataset.data.env_args, indent=4)
+    # data.attrs["env_args"] = json.dumps(config.dataset.data.env_args, indent=4) # TODO
 
     action_min = None
     action_max = None
-
-    # obs_max_buf = dict()
-    # obs_min_buf = dict()
-    # obs_scale_buf = dict()
-    # obs_bias_buf = dict()
 
     obs_max_buf = OrderedDict()
     obs_min_buf = OrderedDict()
@@ -195,7 +190,7 @@ def main(args):
 
         action_data = np.array(action_buf)
         demo.create_dataset(
-            "action",
+            "actions",
             data=action_data,
             dtype=action_data.dtype,
         )
@@ -214,7 +209,7 @@ def main(args):
         if i % 5 == 0 and args.gif:
             clip = ImageSequenceClip(obs_buf["image"], fps=10)
             clip.write_gif(
-                os.path.join(args.output_dir, "demo_{}.gif".format(i)),
+                os.path.join(output_dir, "demo_{}.gif".format(i)),
                 fps=10,
                 verbose=False,
             )
@@ -248,9 +243,9 @@ def main(args):
         for i in range(len(rosbags)):
             # scale actions to [-1, 1]
             demo = data["demo_{}".format(i)]
-            action = demo["action"]
+            action = demo["actions"]
             action_scaled = (action - action_bias) / action_scale
-            demo["action"][:] = action_scaled
+            demo["actions"][:] = action_scaled
 
             # scale observations to [-1, 1] only for FloatVectorModality
             for obs_name in obs_max_buf.keys():
@@ -266,19 +261,18 @@ def main(args):
                 demo["next_obs/{}".format(obs_name)][:] = next_obs_scaled
 
     yaml_data = OrderedDict()
-    yaml_data["action"] = OrderedDict()
+    yaml_data["actions"] = OrderedDict()
     yaml_data["obs"] = OrderedDict()
 
-    yaml_data["action"]["max"] = action_max.tolist()
-    yaml_data["action"]["min"] = action_min.tolist()
-    yaml_data["action"]["scale"] = action_scale.tolist()
-    yaml_data["action"]["bias"] = action_bias.tolist()
+    yaml_data["actions"]["max"] = action_max.tolist()
+    yaml_data["actions"]["min"] = action_min.tolist()
+    yaml_data["actions"]["scale"] = action_scale.tolist()
+    yaml_data["actions"]["bias"] = action_bias.tolist()
 
     # yaml_data["action_max"] = action_max.tolist()
     # yaml_data["action_min"] = action_min.tolist()
     # yaml_data["action_scale"] = action_scale.tolist()
     # yaml_data["action_bias"] = action_bias.tolist()
-
 
     for obs_name in obs_max_buf.keys():
         yaml_data["obs"][obs_name] = OrderedDict()
@@ -293,7 +287,10 @@ def main(args):
         # yaml_data[obs_name]["obs_scale"] = obs_scale_buf[obs_name].tolist()
         # yaml_data[obs_name]["obs_bias"] = obs_bias_buf[obs_name].tolist()
 
-    yaml_file = open(os.path.join(os.path.dirname(args.config), "normalize.yaml"), "w")
+    yaml_file = open(
+        os.path.join(FileUtils.get_config_folder(args.project_name), "normalize.yaml"),
+        "w",
+    )
     yaml.dump(yaml_data, yaml_file, default_flow_style=None)
     yaml_file.close()
 
@@ -302,11 +299,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="./config.yaml")
-    parser.add_argument("--rosbag_dir", type=str, default="/tmp/dataset")
-    parser.add_argument("--output_dir", type=str, default="./")
-    parser.add_argument("--normalize", action="store_true", default=False)
-    parser.add_argument("--image_tune", action="store_true", default=False)
+    parser.add_argument("-pn", "--project_name", type=str)
+    parser.add_argument("-d", "--rosbag_dir", type=str, default="/tmp/dataset")
+    parser.add_argument("-n", "--normalize", action="store_true", default=False)
+    parser.add_argument("-t", "--image_tune", action="store_true", default=False)
     parser.add_argument("--gif", action="store_true", default=False)
     args = parser.parse_args()
 

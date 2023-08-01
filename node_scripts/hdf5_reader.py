@@ -15,7 +15,7 @@ def main(args):
 
     traj_lengths = []
     for ep in demos:
-        traj_lengths.append(len(f["data"][ep]["action"]))
+        traj_lengths.append(len(f["data"][ep]["actions"]))
 
     total_traj_length = np.sum(traj_lengths)
 
@@ -29,7 +29,7 @@ def main(args):
     print("Trajectory length max: {}".format(np.max(traj_lengths)))
     print("Max length traj index: {}".format(np.argmax(traj_lengths)))
     print("Observations: {}".format(f["data"][demos[0]]["obs"].keys()))
-    print("Actions: {}".format(f["data"][demos[0]]["action"]))
+    print("Actions: {}".format(f["data"][demos[0]]["actions"]))
     print("=============================")
 
     if args.verbose:
@@ -48,20 +48,11 @@ def main(args):
             print("Obs: {}".format(obs))
             print("Shape: {}".format(f["data"][demos[0]]["obs"][obs].shape))
             print("Type: {}".format(f["data"][demos[0]]["obs"][obs].dtype))
-            print(
-                "Modality: {}".format(
-                    json.loads(f["data"].attrs["config"])["data"]["obs"][obs][
-                        "modality"
-                    ]
-                )
-            )
             print("First data: {}".format(f["data"][demos[0]]["obs"][obs][0]))
             print("")
         print("Actions max: {}".format(f["data"].attrs["action_max"]))
         print("Actions min: {}".format(f["data"].attrs["action_min"]))
-        print("Actions scale: {}".format(f["data"].attrs["action_scale"]))
-        print("Actions bias: {}".format(f["data"].attrs["action_bias"]))
-        print("First data: {}".format(f["data"][demos[0]]["action"][0]))
+        print("First data: {}".format(f["data"][demos[0]]["actions"][0]))
         print("")
 
         for attr_name in f["data"].attrs.keys():
@@ -77,21 +68,9 @@ def main(args):
                         attr_name.split("/")[-1], f["data"].attrs[attr_name]
                     )
                 )
-            elif "obs_scale" in attr_name:
-                print(
-                    "Observations {} scale: {}".format(
-                        attr_name.split("/")[-1], f["data"].attrs[attr_name]
-                    )
-                )
-            elif "obs_bias" in attr_name:
-                print(
-                    "Observations {} bias: {}".format(
-                        attr_name.split("/")[-1], f["data"].attrs[attr_name]
-                    )
-                )
 
         print("")
-        print("Env Meta: {}".format(f["data"].attrs["env_args"]))
+        # print("Env Meta: {}".format(f["data"].attrs["env_args"]))
 
         print("=============================")
 
@@ -100,7 +79,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, help="path to hdf5 dataset")
-    parser.add_argument("--verbose", action="store_true", help="verbose output")
+    parser.add_argument("-d", "--dataset", type=str, help="path to hdf5 dataset")
+    parser.add_argument("-v", "--verbose", action="store_true", help="verbose output")
     args = parser.parse_args()
     main(args)
