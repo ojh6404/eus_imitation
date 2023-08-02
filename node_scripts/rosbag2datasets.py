@@ -22,11 +22,12 @@ from cv_bridge import CvBridge
 
 from sensor_msgs.msg import CompressedImage, Image, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
-from imitator.utils.rosbag_utils import RosbagUtils, PatchTimer
+import imitator.utils.ros_utils as RosUtils
 import imitator.utils.file_utils as FileUtils
 
 # for no roscore
-rospy.Time = PatchTimer
+rospy.Time = RosUtils.PatchTimer
+
 # for OrderedDict
 yaml.add_representer(
     OrderedDict,
@@ -37,8 +38,9 @@ yaml.add_representer(
 
 
 def main(args):
+    print("this?")
     config = FileUtils.get_config_from_project_name(args.project_name)
-    rosbags = RosbagUtils.get_rosbag_abs_paths(args.rosbag_dir)
+    rosbags = RosUtils.get_rosbag_abs_paths(args.rosbag_dir)
     print("Found {} rosbags".format(len(rosbags)))
 
     # get dataset config

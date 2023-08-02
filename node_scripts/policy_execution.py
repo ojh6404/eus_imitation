@@ -81,8 +81,8 @@ class PolicyExecutorNode(object):
         # self.action_sub = message_filters.Subscriber("/eus_imitation/robot_action", Float32MultiArrayStamped)
         # self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()) + [self.action_sub], 10, 0.1)
 
-        self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()), 10, 0.1)
-        self.obs_ts.registerCallback(self.obs_callback)
+        # self.obs_ts = message_filters.ApproximateTimeSynchronizer(list(self.obs_subs.values()), 10, 0.1)
+        # self.obs_ts.registerCallback(self.obs_callback)
 
         self.action_pub = rospy.Publisher("/eus_imitation/policy_action", Float32MultiArrayStamped, queue_size=1)
         self.bridge = CvBridge()

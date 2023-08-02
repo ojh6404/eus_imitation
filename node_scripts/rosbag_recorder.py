@@ -14,7 +14,7 @@ from std_srvs.srv import Trigger, TriggerResponse
 from sound_play.libsoundplay import SoundClient
 
 
-from imitator.utils.rosbag_utils import RosbagUtils
+import imitator.utils.ros_utils as RosUtils
 
 
 class RosbagRecorderNode(object):
@@ -89,7 +89,7 @@ class RosbagRecorderNode(object):
         return cmd_rosbag
 
     def check_rosbag_files(self):
-        self.rosbag_files = RosbagUtils.get_rosbag_files(self.record_dir)
+        self.rosbag_files = RosUtils.get_rosbag_files(self.record_dir)
         self.file_cnt = len(self.rosbag_files)
 
     def start_record(self):
