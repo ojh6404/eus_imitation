@@ -38,7 +38,6 @@ yaml.add_representer(
 
 
 def main(args):
-    print("this?")
     config = FileUtils.get_config_from_project_name(args.project_name)
     rosbags = RosUtils.get_rosbag_abs_paths(args.rosbag_dir)
     print("Found {} rosbags".format(len(rosbags)))
@@ -87,7 +86,7 @@ def main(args):
 
                     if args.image_tune:
                         tunable = HSVBlurCropResolFilter.from_image(data)
-                        print("press q to finish tuning")
+                        print("Press q to finish tuning")
                         tunable.launch_window()
                         tunable.start_tuning(data)
                         pprint.pprint(tunable.export_dict())
