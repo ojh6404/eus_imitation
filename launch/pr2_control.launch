@@ -1,0 +1,5 @@
+<launch>
+  <!-- euslisp-->
+  <node pkg="eus_imitation" type="pr2-control.l" name="pr2_control"
+        args="&quot;(main :arm :rarm :imitation nil :rot nil)&quot;" output="screen" />
+</launch>

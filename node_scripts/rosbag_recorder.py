@@ -51,10 +51,10 @@ class RosbagRecorderNode(object):
 
         self.is_record = False
         self.switch_record_state_service = rospy.Service(
-            "rosbag_record_trigger", Trigger, self.switch_record_state_cb
+            "/eus_imitation/rosbag_record_trigger", Trigger, self.switch_record_state_cb
         )
         self.remove_rosbag_service = rospy.Service(
-            "rosbag_remove_trigger", Trigger, self.remove_rosbag_cb
+            "/eus_imitation/rosbag_remove_trigger", Trigger, self.remove_rosbag_cb
         )
         self.sound_client = SoundClient()
 
