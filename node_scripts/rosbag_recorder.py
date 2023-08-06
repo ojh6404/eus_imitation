@@ -38,14 +38,14 @@ class RosbagRecorderNode(object):
 
         # self.record_topics = self.config.rosbag.record_topics
 
-        self.obs_cfg = self.config.actor.obs
+        self.obs_cfg = self.config.obs
 
         self.record_topics = []
 
         for key in self.obs_cfg.keys():
             self.record_topics.append(self.obs_cfg[key].topic_name)
 
-        self.action_topic = self.config.actor.actions.topic_name
+        self.action_topic = self.config.actions.topic_name
         self.record_topics.append(self.action_topic)
         rospy.loginfo("Recording topics : {}".format(self.record_topics))
 

@@ -64,6 +64,12 @@
           control-joint-list
           larm-joint-state
           rarm-joint-state
+          larm-target-pos
+          rarm-target-pos
+          larm-target-rot
+          rarm-target-rot
+          larm-rot-enable
+          rarm-rot-enable
           data-collection ;; for collecting demonstration
 
           ;; for IK and pose
@@ -131,8 +137,6 @@
    (send self :set-val 'data-collection (not imitation)) ;; mode
    (send self :set-val 'robot-action nil)
 
-
-
    ;; for IK
    (send self :set-val 'ik-stop-step 10)
     (send self :set-val 'av-tm 800)
@@ -149,11 +153,8 @@
    (send self :set-val 'head-frame-id "head_tilt_link")
     (send self :set-val 'tfl (instance ros::transform-listener :init))
     (send self :set-val 'vrbase-frame-id (format nil "lighthouse_LHB_~A" "8E924CC3"))
-    ;; (send self :set-arm-val :larm :controller-device-id "FD35BD42")
-    ;; (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
-
-    (send self :set-arm-val :rarm :controller-device-id "FD35BD42")
-    (send self :set-arm-val :larm :controller-device-id "F7AFBF47")
+    (send self :set-arm-val :larm :controller-device-id "FD35BD42")
+    (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
 
     (send self :set-val 'recording nil)
     (send self :set-val 'trigger-wait-count 5)
@@ -177,14 +178,17 @@
   (:ros-init ()
     (ros::advertise robot-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
 
+    (print "test test")
+    (print (send self :get-val 'data-collection))
+
     ;; publish action topic when data collection
     ;; subscribe action topic when imitation
     (if (send self :get-val 'data-collection)
-      (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
-
+      (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1)
       ;; (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1))
-      ;; (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (print (send msg :data))) 1))
-      ;; (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1))
+      (progn
+      ;; (send self :set-val 'robot-action (concatenate float-vector (send (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords) :worldpos ) (float-vector 0.0))) ;; 3 + 1
+      (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (setq real-robot-action (send msg :data))) 1)))
 
 
     (if larm-controller-device-id
@@ -626,12 +630,11 @@
     (ros::publish robot-action-topic-name robot-action-msg))
 
   (:main-loop-step (&key (arm :rarm))
-    (let ((ref-coords))
+    (let ((ref-coords) (target-pos) (target-rpy) (robot-action))
       (send self :button-cb arm)
       (send self :update-robot)
       (send self :publish-robot-state)
       (send *irtviewer* :draw-objects)
-
 
       (if (send self :get-arm-val arm :enable)
         (progn
@@ -641,24 +644,38 @@
               (send self :update-robot-action)
               (send self :publish-robot-action)))
           ;; execute action
-          (if (send self :get-val 'robot-action)
-            (send self :execute-action))))))
+          ;; (send self :execute-action)
+
+          (print (send self :get-val 'robot-action))
+
+          ))))
 
   (:main-loop (&key (arm :rarm) (imitation nil) (rot nil))
     (send self :update-robot)
+    (send self :set-arm-val :arms :rot-enable rot)
     (send self :init-pose)
 
-    (if imitation
-        (progn
-          (ros::ros-info "Imitation control enabled")
-          (send self :set-val 'loop-enable t)
-          (send self :set-arm-val arm :enable t)
-          (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1)))
+    (setq real-robot-action (concatenate float-vector (send (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords) :worldpos ) (float-vector 0.0))) ;; 3 + 1
+
+    ;; (send self :set-val 'loop-enable t)
+    ;; (send self :set-arm-val arm :enable t)
+
+
+    ;; (if imitation
+    ;;     (progn
+    ;;       (send self :set-val 'loop-enable t)
+    ;;       (send self :set-arm-val arm :enable t)
+    ;;       (send self :init-pose)
+    ;;       (setf robot-action-real (concatenate float-vector (send (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords) :worldpos ) (float-vector 0.0))) ;; 3 + 1
+    ;;       ;; (ros::subscribe "/eus_imitation/policy_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (setq robot-action-real (send msg :data))) 1)))
+    ;;       (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1)))
 
 
     ;; (send *ri* :speak "I'm ready to start." :wait nil :volume 0.6)
     (while (ros::ok)
       (ros::rate rate) ;; need to set every loop, otherwise it will be too fast. I don't know why.
+      (send self :set-val 'robot-action real-robot-action)
+
       (send self :main-loop-step :arm arm)
       (ros::spin-once)
       (ros::sleep))))
