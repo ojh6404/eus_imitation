@@ -27,6 +27,7 @@
           robot-state ;; state representated as a float vector
           robot-state-type ;; end-effector pose or joint angle or something else
 
+
           ;; ros settings
           node-name
           robot-action-topic-name
@@ -46,8 +47,8 @@
           larm-enable-p
           rarm-enable-p
           larm-grasp
-          rarm-grasp
           larm-grasping-p
+          rarm-grasp
           rarm-grasping-p
           larm-current-end-coords
           rarm-current-end-coords
@@ -58,9 +59,18 @@
           loop-enable
           larm-loop-enable
           rarm-loop-enable
-          larm-gripper-position
-          rarm-gripper-position
+          larm-gripper-pos
+          rarm-gripper-pos
           control-joint-list
+          larm-joint-state
+          rarm-joint-state
+          larm-target-pos
+          rarm-target-pos
+          larm-target-rot
+          rarm-target-rot
+          larm-rot-enable
+          rarm-rot-enable
+          data-collection ;; for collecting demonstration
 
           ;; for IK and pose
           scale
@@ -121,9 +131,11 @@
           rarm-tf-base->gripperref))
 
 (defmethod robot-imitation-interface
-  (:init  (&key (loop-enable t))
+  (:init  (&key (loop-enable t) (imitation nil))
    ;; set eus robot interface
    (send self :set-val 'robot-interface *ri*)
+   (send self :set-val 'data-collection (not imitation)) ;; mode
+   (send self :set-val 'robot-action nil)
 
 
 
@@ -152,6 +164,9 @@
     (send self :set-val 'trackpad-wait-count 5)
     (send self :set-val 'grip-wait-count 5)
 
+
+
+
    ;; prepare for ros init
    (send self :set-val 'node-name "eus_imitation")
    (send self :set-val 'rate 10)
@@ -163,8 +178,16 @@
 
     self)
   (:ros-init ()
-    (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise robot-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
+
+    ;; publish action topic when data collection
+    ;; subscribe action topic when imitation
+    (if (send self :get-val 'data-collection)
+      (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
+
+      ;; (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1))
+      ;; (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (print (send msg :data))) 1))
+      ;; (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1))
 
 
     (if larm-controller-device-id
@@ -191,9 +214,11 @@
     (send self :reset-arm-val :rarm))
   (:reset-arm-val (arm)
     (send self :set-arm-val arm :enable nil)
-    (send self :set-arm-val arm :grasp nil)
+    (send self :set-arm-val arm :grasp 0)
     (send self :set-arm-val arm :grasping-p nil)
     (send self :set-arm-val arm :current-end-coords nil)
+    (send self :set-arm-val arm :gripper-pos nil)
+    (send self :set-arm-val arm :joint-state nil)
 
     (send self :set-val 'tracking nil)
     (send self :set-arm-val :larm :tracking nil)
@@ -220,7 +245,7 @@
   ;;   (send self :set-val 'init-pose *init-pose*)
   ;;   (dump-loadable-structure "init-pose.l" *init-pose*))
   (:set-init-pose ()
-    (setq *init-pose* (send self :update-robot-model))
+    (setq *init-pose* (send self :update-robot))
     (ros::ros-info "Set init pose : ~A" *init-pose*)
     (send self :set-val 'init-pose *init-pose*)
     (dump-loadable-structure "init-pose.l" *init-pose*))
@@ -230,7 +255,7 @@
     (send self :set-val 'init-pose *init-pose*))
   (:init-pose ()
     (send self :load-init-pose)
-    (send self :update-robot-model)
+    (send self :update-robot)
     (send robot-interface :angle-vector init-pose 3000)
     (send self :stop-grasp :larm :wait t)
     (send self :stop-grasp :rarm :wait t)
@@ -247,32 +272,57 @@
       ((eq arm :rarm) :larm)
       (t nil)))
   (:get-arm-val (arm name)
-    (if (not (or (eq arm :larm) (eq arm :rarm)))
+    (if (not (or (eq arm :arms) (eq arm :larm) (eq arm :rarm)))
       (progn
         (ros::ros-error (format nil "Invalid args: (send self :get-arm-val ~A ~A)" arm name))
         (return-from :get-arm-val nil)))
     (let ((valname (format nil "~A-~A" (string-upcase arm) (string-upcase name))))
+      (if (eq arm :arms)
+          (return-from :get-arm-val (list (send self :get-arm-val :larm name)
+                                          (send self :get-arm-val :rarm name))))
       (if (find (read-from-string valname) (mapcar #'car (cdr (send self :slots))))
-        (send self :get-val (intern valname)))
-      ))
+        (send self :get-val (intern valname)))))
   (:set-arm-val (arm name val)
-    (if (not (or (eq arm :larm) (eq arm :rarm)))
+    (if (not (or (eq arm :arms) (eq arm :larm) (eq arm :rarm)))
       (progn
         (ros::ros-error (format nil "Invalid args: (send self :set-arm-val: ~A ~A ~A)" arm name val))
         (return-from :set-arm-val nil)))
     (let ((valname (format nil "~A-~A" (string-upcase arm) (string-upcase name))))
-      (send self :set-val (intern valname) val)
-      ))
+      (if (eq arm :arms)
+        (progn
+          (send self :set-arm-val :larm name val)
+          (send self :set-arm-val :rarm name val))
+        (send self :set-val (intern valname) val))))
+
   (:update-robot-model ()
     (send robot :angle-vector (send robot-interface :state :potentio-vector)))
   (:update-current-end-coords ()
-     (let ((av (send robot :angle-vector)))
-       (send robot :angle-vector
-             (send robot-interface :state :potentio-vector))
        (send self :set-arm-val :larm :current-end-coords
              (send robot :larm :end-coords :copy-worldcoords))
        (send self :set-arm-val :rarm :current-end-coords
-             (send robot :rarm :end-coords :copy-worldcoords))))
+             (send robot :rarm :end-coords :copy-worldcoords)))
+  (:update-current-gripper-pos ()
+       (send self :set-arm-val :larm :gripper-pos
+             (send robot-interface :gripper :larm :position))
+       (send self :set-arm-val :rarm :gripper-pos
+             (send robot-interface :gripper :rarm :position)))
+  (:update-current-joint-state ()
+       (send self :set-arm-val :larm :joint-state
+             (send robot :larm :angle-vector))
+       (send self :set-arm-val :rarm :joint-state
+             (send robot :rarm :angle-vector)))
+  (:update-robot ()
+    (send self :update-robot-model)
+    (send self :update-current-end-coords)
+    (send self :update-current-gripper-pos)
+    (send self :update-current-joint-state)
+    (send self :update-robot-state)) ;; update robot state for IL or RL, defined by user
+  (:update-robot-state () ;; this should be defined by user, as an abstract method. here is an example.
+      (let (end-effector-pos joint-state gripper-pos)
+        (setq end-effector-pos (send (send (send self :get-arm-val :rarm :current-end-coords) :copy-worldcoords) :worldpos))
+        (setq joint-state (send self :get-arm-val :rarm :joint-state))
+        (setq gripper-pos (float-vector (send self :get-arm-val :rarm :gripper-pos)))
+        (send self :set-val 'robot-state (concatenate float-vector end-effector-pos gripper-pos))))
   (:inverse-kinematics (arm target-coords &rest args)
     (if (eq arm :arms)
       (send* robot :inverse-kinematics target-coords :rotation-axis (list t t)
@@ -322,7 +372,7 @@
   (:calib-controller (arm)
     (let (tf-vrbase->controllerref tf-base->gripperref)
       (ros::ros-info "Calibrating controller ~A" arm)
-      (send self :update-current-end-coords)
+      (send self :update-robot)
       (send self :set-arm-val arm :tf-vrbase->controllerref (make-coords
                                          :pos (send (send self :get-vrbase->controller-coords arm) :pos)
                                          :rot (send (send self :get-vrbase->controller-coords arm) :rot)))
@@ -510,7 +560,7 @@
               (setq res (ros::service-call record-trigger-service-name req))
               (send self :set-val 'recording nil))
             (progn
-              (send self :update-robot-model)
+              (send self :update-robot)
               (ros::ros-info "arm: ~A starting" arm)
               (send self :calib-controller arm)
               (ros::wait-for-service record-trigger-service-name 1)
@@ -546,7 +596,7 @@
             (ros::ros-info "Inititalizing robot...")
             (send self :init-pose)
             (send self :reset)
-            (send self :update-robot-model)
+            (send self :update-robot)
             (ros::ros-info "Initiailized")))))
   (:gripper-cb (arm &key (wait nil) (button :trigger))
     (if (send self :get-arm-val arm button)
@@ -567,98 +617,56 @@
     (send self :init-cb :button :grip)
     (send self :gripper-cb arm :wait nil :button :trigger)
     (send self :remove-cb :button :menu))
-  (:robot-state-publisher (robot-state rot)
-    (if rot
-        (progn
-          (setq rpy-rots (elt (rpy-angle (send robot-state :worldrot)) 0))
-          (setq robot-state-data (concatenate float-vector (send robot-state :worldpos) rpy-rots (float-vector (send self :get-arm-val :rarm :grasp)))))
-        (setq robot-state-data (concatenate float-vector (send robot-state :worldpos) (float-vector (send self :get-arm-val :rarm :grasp)))))
+  (:publish-robot-state ()
     (setq robot-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
-    (send robot-state-msg :data robot-state-data)
+    (send robot-state-msg :data (send self :get-val 'robot-state))
     (send robot-state-msg :header :stamp (ros::time-now))
     (ros::publish robot-state-topic-name robot-state-msg))
-  (:robot-action-publisher (robot-action rot)
-    (if rot
-        (progn
-          (setq rpy-rots (elt (rpy-angle (send robot-action :worldrot)) 0))
-          (setq robot-action-data (concatenate float-vector (send robot-action :worldpos) rpy-rots (float-vector (send self :get-arm-val :rarm :grasp)))))
-        (setq robot-action-data (concatenate float-vector (send robot-action :worldpos) (float-vector (send self :get-arm-val :rarm :grasp)))))
+  (:publish-robot-action ()
     (setq robot-action-msg (instance eus_imitation::Float32MultiArrayStamped :init))
-    (send robot-action-msg :data robot-action-data)
+    (send robot-action-msg :data (send self :get-val 'robot-action))
     (send robot-action-msg :header :stamp (ros::time-now))
     (ros::publish robot-action-topic-name robot-action-msg))
 
-
-  (:main-loop-step (&key (arm :rarm) (imitation nil) (rot nil))
-    (let ((ref-coords) (target-pos) (target-rpy) (robot-action) (robot-state))
+  (:main-loop-step (&key (arm :rarm))
+    (let ((ref-coords))
       (send self :button-cb arm)
-      (send self :update-current-end-coords)
+      (send self :update-robot)
+      (send self :publish-robot-state)
       (send *irtviewer* :draw-objects)
-      (setf robot-state (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords)) ;; robot state
 
-      ;; (print (list "robot-action-real" robot-action-real))
 
       (if (send self :get-arm-val arm :enable)
         (progn
-          (unless rot
-            (setf target-rpy (float-vector pi/2 pi/2 -pi/2)))
-
-          (if imitation
-            (if rot
-              (setf ref-coords (make-coords :pos (subseq robot-action-real 0 3) :rpy (subseq robot-action-real 3 6))) ;; rotational
-              (setf ref-coords (make-coords :pos (subseq robot-action-real 0 3) :rpy target-rpy))) ;; fixed rpy
-
-            (setf ref-coords (send (send self :get-target-coords arm :pos-scale 1.0) :copy-worldcoords)))
-
-          (setf target-pos (send ref-coords :worldpos))
-          (setf target-rpy (elt (rpy-angle (send ref-coords :worldrot)) 0))
-          (unless rot
-            (setf target-rpy (float-vector pi/2 pi/2 -pi/2))
-            )
-
-          (setf target-coords (make-coords :pos target-pos :rpy target-rpy))
-
-          (send self :inverse-kinematics arm target-coords)
-
-          (setf robot-action target-coords) ;; or joint angles
-
-          (send self :robot-state-publisher robot-state rot) ;; state publisher
-          (unless imitation
-            (send self :robot-action-publisher robot-action rot))
-
-          ;; (print (send robot-interface :gripper arm :position)) ;; gripper position
+          ;; update robot action and publish when data collection
+          (if (send self :get-val 'data-collection)
+            (progn
+              (send self :update-robot-action)
+              (send self :publish-robot-action)))
           ;; execute action
-          (if imitation
-              (setq gripper-action (if (> (elt robot-action-real 3) 0.5) 1 0))
-              (setq gripper-action (send self :get-arm-val arm :grasp)))
+          (if (send self :get-val 'robot-action)
+            (send self :execute-action))))))
 
-            (send self :angle-command-vector arm :torso nil)
-            (if (> gripper-action 0.5)
-                (send self :start-grasp arm :wait nil)
-                (send self :stop-grasp arm :wait nil))
-            ))))
   (:main-loop (&key (arm :rarm) (imitation nil) (rot nil))
-    (send self :update-current-end-coords)
+    (send self :update-robot)
+    (send self :set-arm-val :arms :rot-enable rot)
+    (send self :init-pose)
+
+
+
     (if imitation
         (progn
+          (print "imitation mode")
+          (send self :set-val 'loop-enable t)
           (send self :set-arm-val arm :enable t)
-          (send self :init-pose)
-          (setf robot-action-real (concatenate float-vector (send (send (send self :get-arm-val arm :current-end-coords) :copy-worldcoords) :worldpos ) (float-vector 0.0))) ;; 3 + 1
-          (ros::subscribe "/eus_imitation/policy_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (setq robot-action-real (send msg :data))) 1)))
+          (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1)))
+
 
     ;; (send *ri* :speak "I'm ready to start." :wait nil :volume 0.6)
     (while (ros::ok)
-      (ros::rate rate)
-      (setq start-time (unix:gettimeofday))
-
-      (send self :main-loop-step :arm arm :imitation imitation :rot rot)
+      (ros::rate rate) ;; need to set every loop, otherwise it will be too fast. I don't know why.
+      (send self :main-loop-step :arm arm)
       (ros::spin-once)
-      (ros::sleep)
-
-      (setq end-time (unix:gettimeofday))
-      (setq wait-time (+ (* (- (elt end-time 0) (elt start-time 0)) 1000)
-                          (/ (- (elt end-time 1) (elt start-time 1)) 1000.0)))
-      (print wait-time)
-      )))
+      (ros::sleep))))
 
 (provide :robot-imitation-interface)

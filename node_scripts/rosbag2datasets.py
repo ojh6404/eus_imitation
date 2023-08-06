@@ -56,9 +56,11 @@ def main(args):
         subscribers[obs.topic_name] = message_filters.Subscriber(
             obs.topic_name, eval(obs.msg_type)
         )
-    subscribers[action_topic_name] = message_filters.Subscriber(
-        action_topic_name, eval(action_cfg.msg_type)
-    )
+
+    if not args.image_only:
+        subscribers[action_topic_name] = message_filters.Subscriber(
+            action_topic_name, eval(action_cfg.msg_type)
+        )
 
     topic_names = [topic_name for topic_name in subscribers.keys()]
     print("Subscribing to topics: {}".format(topic_names))
@@ -190,21 +192,26 @@ def main(args):
                     ).astype(np.float32)
 
         action_data = np.array(action_buf)
-        demo.create_dataset(
-            "actions",
-            data=action_data,
-            dtype=action_data.dtype,
-        )
+        if not args.image_only:
+            demo.create_dataset(
+                "actions",
+                data=action_data,
+                dtype=action_data.dtype,
+            )
 
-        if action_min is None:
-            action_min = np.min(action_data, axis=0)
-            action_max = np.max(action_data, axis=0)
-        else:
-            action_min = np.minimum(action_min, np.min(action_data, axis=0))
-            action_max = np.maximum(action_max, np.max(action_data, axis=0))
+            if action_min is None:
+                action_min = np.min(action_data, axis=0)
+                action_max = np.max(action_data, axis=0)
+            else:
+                action_min = np.minimum(action_min, np.min(action_data, axis=0))
+                action_max = np.maximum(action_max, np.max(action_data, axis=0))
 
-        assert len(obs_data) == len(action_data)
-        demo.attrs["num_samples"] = len(action_data)
+            assert len(obs_data) == len(action_data)
+            demo.attrs["num_samples"] = len(action_data)
+
+        if args.image_only:
+            demo.attrs["num_samples"] = len(obs_data)
+
         data_file.flush()
 
         if i % 5 == 0 and args.gif:
@@ -304,6 +311,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--rosbag_dir", type=str, default="/tmp/dataset")
     parser.add_argument("-n", "--normalize", action="store_true", default=False)
     parser.add_argument("-t", "--image_tune", action="store_true", default=False)
+    parser.add_argument("-i", "--image_only", action="store_true", default=False)
     parser.add_argument("--gif", action="store_true", default=False)
     args = parser.parse_args()
 

@@ -3,11 +3,11 @@
 (require :pr2-imitation-interface "package://eus_imitation/euslisp/pr2-imitation-interface.l")
 
 
-(defun init-pr2-imitator ()
+(defun init-pr2-imitator (&key (imitation nil))
   (pr2-init)
   (objects (list *pr2*))
-  (setq *pr2-imitator* (instance pr2-imitation-interface :init))
+  (setq *pr2-imitator* (instance pr2-imitation-interface :init :imitation imitation))
   (send *pr2-imitator* :ros-init))
 (defun main (&key (arm :rarm) (imitation nil) (rot nil))
-  (init-pr2-imitator)
+  (init-pr2-imitator :imitation imitation)
   (send *pr2-imitator* :main-loop :arm arm :imitation imitation :rot rot))
