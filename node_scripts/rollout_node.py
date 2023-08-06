@@ -17,6 +17,7 @@ from imitator.utils import file_utils as FileUtils
 from imitator.utils.obs_utils import *
 from imitator.utils.env_utils import RolloutBase
 from eus_imitation.msg import Float32MultiArrayStamped
+from imitator.models.policy_nets import MLPActor, RNNActor, TransformerActor
 
 
 class ROSRollout(RolloutBase):
@@ -115,6 +116,8 @@ class ROSRollout(RolloutBase):
             else:
                 raise NotImplementedError
 
+        # processed_obs : dict of np.array like [D]
+
         self.inference_start = time.time()
 
         pred_action = self.rollout(processed_obs)
@@ -125,14 +128,19 @@ class ROSRollout(RolloutBase):
                 "callback time: ",
                 time.time() - self.inference_start,
             )
-            print("pred action: ", pred_action)
-            print("real action: ", msgs[-1].data)
+            print("pred action: ", pred_action.tolist())
+            print("real action: ", list(msgs[-1].data))
 
-    def process_obs(self, obs: Dict[str, Any]) -> Dict[str, Any]:
-        return obs
+    # def process_obs(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+    #     return obs
 
     @torch.no_grad()
     def render(self, obs: Dict[str, Any]) -> None:
+
+        if self.actor_type == TransformerActor: # obs is stacked if transformer like [1, T, D]
+            # so we need to use last time step obs to render
+            obs = {k: v[:, -1, :] for k, v in obs.items()}
+
         if self.image_obs:
             obs = TensorUtils.squeeze(obs, dim=0)
             for image_obs in self.image_obs:

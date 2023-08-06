@@ -15,7 +15,12 @@ def main(args):
 
     traj_lengths = []
     for ep in demos:
-        traj_lengths.append(len(f["data"][ep]["actions"]))
+        for obs in f["data"][ep]["obs"].keys():
+            traj_lengths.append(f["data"][ep]["obs"][obs].shape[0])
+            print(f["data"][ep]["obs"][obs].shape[0])
+            break
+    # for ep in demos:
+    #     traj_lengths.append(len(f["data"][ep]["actions"]))
 
     total_traj_length = np.sum(traj_lengths)
 
@@ -29,7 +34,9 @@ def main(args):
     print("Trajectory length max: {}".format(np.max(traj_lengths)))
     print("Max length traj index: {}".format(np.argmax(traj_lengths)))
     print("Observations: {}".format(f["data"][demos[0]]["obs"].keys()))
-    print("Actions: {}".format(f["data"][demos[0]]["actions"]))
+    # f["data"][demos[0]] has actions, then print
+    if "actions" in f["data"][demos[0]].keys():
+        print("Actions: {}".format(f["data"][demos[0]]["actions"]))
     print("=============================")
 
     if args.verbose:
@@ -50,9 +57,11 @@ def main(args):
             print("Type: {}".format(f["data"][demos[0]]["obs"][obs].dtype))
             print("First data: {}".format(f["data"][demos[0]]["obs"][obs][0]))
             print("")
-        print("Actions max: {}".format(f["data"].attrs["action_max"]))
-        print("Actions min: {}".format(f["data"].attrs["action_min"]))
-        print("First data: {}".format(f["data"][demos[0]]["actions"][0]))
+        if "actions" in f["data"][demos[0]].keys():
+            print("Actions max: {}".format(f["data"].attrs["action_max"]))
+            print("Actions min: {}".format(f["data"].attrs["action_min"]))
+            print("First data: {}".format(f["data"][demos[0]]["actions"][0]))
+
         print("")
 
         for attr_name in f["data"].attrs.keys():
