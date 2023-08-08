@@ -2,12 +2,10 @@
 import os
 import time
 import argparse
-import yaml
+from omegaconf import OmegaConf
 import json
 import pprint
 from tqdm import tqdm
-from easydict import EasyDict as edict
-from collections import OrderedDict
 
 import numpy as np
 import cv2
@@ -28,15 +26,6 @@ import imitator.utils.file_utils as FileUtils
 # for no roscore
 rospy.Time = RosUtils.PatchTimer
 
-# for OrderedDict
-yaml.add_representer(
-    OrderedDict,
-    lambda dumper, data: dumper.represent_mapping(
-        "tag:yaml.org,2002:map", data.items()
-    ),
-)
-
-
 def main(args):
     config = FileUtils.get_config_from_project_name(args.project_name)
     rosbags = RosUtils.get_rosbag_abs_paths(args.rosbag_dir)
@@ -51,7 +40,7 @@ def main(args):
     action_topic_name = action_cfg.topic_name
 
     # create dict of subscriber
-    subscribers = OrderedDict()
+    subscribers = dict()
     for obs in obs_cfg.values():
         subscribers[obs.topic_name] = message_filters.Subscriber(
             obs.topic_name, eval(obs.msg_type)
@@ -127,16 +116,16 @@ def main(args):
     data.attrs["num_demos"] = len(rosbags)
     data.attrs["num_obs"] = len(topic_name_to_obs_name)
     data.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    data.attrs["config"] = json.dumps(config.dataset, indent=4)
+    # data.attrs["config"] = json.dumps(config.dataset, indent=4)
     # data.attrs["env_args"] = json.dumps(config.dataset.data.env_args, indent=4) # TODO
 
     action_min = None
     action_max = None
 
-    obs_max_buf = OrderedDict()
-    obs_min_buf = OrderedDict()
-    obs_scale_buf = OrderedDict()
-    obs_bias_buf = OrderedDict()
+    obs_max_buf = dict()
+    obs_min_buf = dict()
+    obs_scale_buf = dict()
+    obs_bias_buf = dict()
 
     for obs_name in topic_name_to_obs_name.values():
         # only for FloatVectorModality
@@ -147,8 +136,7 @@ def main(args):
             obs_bias_buf[obs_name] = None
 
     for i, bag in enumerate(tqdm(rosbags)):
-        # obs_buf = dict()
-        obs_buf = OrderedDict()
+        obs_buf = dict()
         action_buf = []
         for obs_name in topic_name_to_obs_name.values():
             obs_buf[obs_name] = []
@@ -268,39 +256,26 @@ def main(args):
                 ) / obs_scale_buf[obs_name]
                 demo["next_obs/{}".format(obs_name)][:] = next_obs_scaled
 
-    yaml_data = OrderedDict()
-    yaml_data["actions"] = OrderedDict()
-    yaml_data["obs"] = OrderedDict()
+    normalize_data = dict()
+    normalize_data["actions"] = dict()
+    normalize_data["obs"] = dict()
 
-    yaml_data["actions"]["max"] = action_max.tolist()
-    yaml_data["actions"]["min"] = action_min.tolist()
-    yaml_data["actions"]["scale"] = action_scale.tolist()
-    yaml_data["actions"]["bias"] = action_bias.tolist()
-
-    # yaml_data["action_max"] = action_max.tolist()
-    # yaml_data["action_min"] = action_min.tolist()
-    # yaml_data["action_scale"] = action_scale.tolist()
-    # yaml_data["action_bias"] = action_bias.tolist()
+    normalize_data["actions"]["max"] = action_max.tolist()
+    normalize_data["actions"]["min"] = action_min.tolist()
+    normalize_data["actions"]["scale"] = action_scale.tolist()
+    normalize_data["actions"]["bias"] = action_bias.tolist()
 
     for obs_name in obs_max_buf.keys():
-        yaml_data["obs"][obs_name] = OrderedDict()
-        yaml_data["obs"][obs_name]["max"] = obs_max_buf[obs_name].tolist()
-        yaml_data["obs"][obs_name]["min"] = obs_min_buf[obs_name].tolist()
-        yaml_data["obs"][obs_name]["scale"] = obs_scale_buf[obs_name].tolist()
-        yaml_data["obs"][obs_name]["bias"] = obs_bias_buf[obs_name].tolist()
+        normalize_data["obs"][obs_name] = dict()
+        normalize_data["obs"][obs_name]["max"] = obs_max_buf[obs_name].tolist()
+        normalize_data["obs"][obs_name]["min"] = obs_min_buf[obs_name].tolist()
+        normalize_data["obs"][obs_name]["scale"] = obs_scale_buf[obs_name].tolist()
+        normalize_data["obs"][obs_name]["bias"] = obs_bias_buf[obs_name].tolist()
 
-        # yaml_data[obs_name] = OrderedDict()
-        # yaml_data[obs_name]["obs_max"] = obs_max_buf[obs_name].tolist()
-        # yaml_data[obs_name]["obs_min"] = obs_min_buf[obs_name].tolist()
-        # yaml_data[obs_name]["obs_scale"] = obs_scale_buf[obs_name].tolist()
-        # yaml_data[obs_name]["obs_bias"] = obs_bias_buf[obs_name].tolist()
+    normalize_cfg = OmegaConf.create(normalize_data)
+    OmegaConf.save(normalize_cfg, os.path.join(FileUtils.get_config_folder(args.project_name), "normalize.yaml"))
 
-    yaml_file = open(
-        os.path.join(FileUtils.get_config_folder(args.project_name), "normalize.yaml"),
-        "w",
-    )
-    yaml.dump(yaml_data, yaml_file, default_flow_style=None)
-    yaml_file.close()
+
 
     data_file.close()
 

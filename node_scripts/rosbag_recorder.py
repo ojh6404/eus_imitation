@@ -2,12 +2,11 @@
 
 import subprocess
 import threading
-import yaml
 import time
 import signal
 import os
 
-from easydict import EasyDict as edict
+from omegaconf import OmegaConf
 import rospy
 import rospkg
 from std_srvs.srv import Trigger, TriggerResponse
@@ -21,8 +20,7 @@ class RosbagRecorderNode(object):
     def __init__(self):
         package_path = rospkg.RosPack().get_path("eus_imitation")
         try:
-            with open("{}/config/config.yaml".format(package_path)) as f:
-                self.config = edict(yaml.safe_load(f))
+            self.config = OmegaConf.load("{}/config/config.yaml".format(package_path))
         except:
             raise FileNotFoundError("config.yaml not found")
 
