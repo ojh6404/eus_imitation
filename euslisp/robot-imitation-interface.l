@@ -384,30 +384,9 @@
                   (send self :controller-trigger-button-p arm :button-toggle t))
             (ros::spin-once)
             (ros::sleep))))
-      (send tfl :wait-for-transform vrbase-frame-id controller-frame-id start-time wait-time) ;; NOTE this executed
-      (setq coords (send tfl :lookup-transform vrbase-frame-id controller-frame-id start-time)) ;; NOTE this executed too
+      (send tfl :wait-for-transform vrbase-frame-id controller-frame-id start-time wait-time)
+      (setq coords (send tfl :lookup-transform vrbase-frame-id controller-frame-id start-time))
       coords))
-  ;; (:get-world->controller-coords (arm &key (wait-trigger nil) (wait-time 0.1))
-  ;;   (let ((controller-frame-id (send self :get-arm-val arm :controller-frame-id))
-  ;;         (start-time (ros::time 0))
-  ;;         coords controller-trigger-button-p)
-  ;;     (if (or (null vrbase-frame-id) (null controller-frame-id))
-  ;;       (progn
-  ;;         (ros::ros-warn "Frame ids are not set properly.")
-  ;;         (ros::ros-warn "vrbase-frame-id: ~A" vrbase-frame-id)
-  ;;         (ros::ros-warn "controller-frame-id: ~A" controller-frame-id)
-  ;;         (return-from :get-vrbase->controller-coords nil)))
-  ;;     (if wait-trigger
-  ;;       (progn
-  ;;         (ros::ros-info "Waiting for trigger: ~A~%" (string-downcase arm))
-  ;;         (while (and (ros::ok) (not controller-trigger-button-p))
-  ;;           (setq controller-trigger-button-p
-  ;;                 (send self :controller-trigger-button-p arm :button-toggle t))
-  ;;           (ros::spin-once)
-  ;;           (ros::sleep))))
-  ;;     (send tfl :wait-for-transform "world" controller-frame-id start-time wait-time) ;; NOTE this executed
-  ;;     (setq coords (send tfl :lookup-transform "world" controller-frame-id start-time)) ;; NOTE this executed too
-  ;;     coords))
   (:get-target-coords (arm &key (pos-scale 1.5))
     (let* ((tf-vrbase->controller (send self :get-vrbase->controller-coords arm))
           (tf-base->gripperref (send self :get-arm-val arm :tf-base->gripperref))
