@@ -4,6 +4,7 @@
 tmp/
 
 *.hdf5
+*.npy
 data/
 
 *.pyc
