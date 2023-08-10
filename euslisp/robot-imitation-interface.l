@@ -149,19 +149,14 @@
    (send self :set-val 'head-frame-id "head_tilt_link")
     (send self :set-val 'tfl (instance ros::transform-listener :init))
     (send self :set-val 'vrbase-frame-id (format nil "lighthouse_LHB_~A" "8E924CC3"))
-    ;; (send self :set-arm-val :larm :controller-device-id "FD35BD42")
-    ;; (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
-
-    (send self :set-arm-val :rarm :controller-device-id "FD35BD42")
-    (send self :set-arm-val :larm :controller-device-id "F7AFBF47")
+    (send self :set-arm-val :larm :controller-device-id "FD35BD42")
+    (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
 
     (send self :set-val 'recording nil)
     (send self :set-val 'trigger-wait-count 5)
     (send self :set-val 'menu-wait-count 5)
     (send self :set-val 'trackpad-wait-count 5)
     (send self :set-val 'grip-wait-count 5)
-
-
 
 
    ;; prepare for ros init
@@ -181,11 +176,6 @@
     ;; subscribe action topic when imitation
     (if (send self :get-val 'data-collection)
       (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
-
-      ;; (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1))
-      ;; (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (print (send msg :data))) 1))
-      ;; (ros::subscribe "/eus_imitation/robot_action" eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1))
-
 
     (if larm-controller-device-id
       (progn
@@ -427,45 +417,6 @@
                                       :rot (send tf-controllerref->controller :rot)))
           (target-coords (send tf-gripperref->gripper :transform (send tf-base->gripperref :copy-worldcoords) :world)))
       target-coords))
-
-
-  ;; (:enable (&key (torso t))
-  ;;   (send self :set-val 'loop-enable t)
-  ;;   (send self :set-arm-val :larm :loop-enable t)
-  ;;   (send self :set-arm-val :rarm :loop-enable t)
-  ;;   (send robot-interface :cancel-angle-vector
-  ;;         :controller-type (send self :get-arm-controller :larm))
-  ;;   (send robot-interface :cancel-angle-vector
-  ;;         :controller-type (send self :get-arm-controller :rarm))
-  ;;   (if (and torso (find-method robot-interface :torso-controller))
-  ;;     (send robot-interface :cancel-angle-vector :controller-type :torso-controller))
-  ;;   )
-  ;; (:enable-arm (arm)
-  ;;   (send robot-interface :cancel-angle-vector
-  ;;         :controller-type (send self :get-arm-controller arm))
-  ;;   (send self :set-arm-val arm :enable t)
-  ;;   )
-  ;; (:enable-torso ()
-  ;;   (if (find-method robot-interface :torso-controller)
-  ;;     (send robot-interface :cancel-angle-vector :controller-type :torso-controller)))
-  ;; (:disable (&key (torso t))
-  ;;   (send self :set-val 'loop-enable nil)
-  ;;   (send self :set-arm-val :larm :loop-enable nil)
-  ;;   (send self :set-arm-val :rarm :loop-enable nil)
-  ;;   (send robot-interface :cancel-angle-vector
-  ;;         :controller-type (send self :get-arm-controller :larm))
-  ;;   (send robot-interface :cancel-angle-vector
-  ;;         :controller-type (send self :get-arm-controller :rarm))
-  ;;   (if (and torso (find-method robot-interface :torso-controller))
-  ;;     (send robot-interface :cancel-angle-vector :controller-type :torso-controller))
-  ;;   )
-  ;; (:disable-arm (arm)
-  ;;   (send robot-interface :cancel-angle-vector
-  ;;         :controller-type (send self :get-arm-controller arm))
-  ;;   (send self :set-arm-val arm :enable nil))
-  ;; (:disable-torso ()
-  ;;   (if (find-method robot-interface :torso-controller)
-  ;;     (send robot-interface :cancel-angle-vector :controller-type :torso-controller)))
 
   (:controller-button-cb (arm msg)
         (send self :set-arm-val arm :prev-trigger (send self :get-arm-val arm :trigger))
