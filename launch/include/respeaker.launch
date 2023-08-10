@@ -1,3 +1,0 @@
-<launch>
-  <node name="respeaker_node" pkg="respeaker_ros" type="respeaker_node.py" respawn="true"/>
-</launch>
