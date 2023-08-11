@@ -2,7 +2,6 @@
 import os
 import time
 import argparse
-import json
 import pprint
 from tqdm import tqdm
 
@@ -14,10 +13,9 @@ from tunable_filter.composite_zoo import HSVBlurCropResolFilter
 
 import rospy
 import rosbag
-import message_filters
 from cv_bridge import CvBridge
 
-from sensor_msgs.msg import CompressedImage, Image, JointState
+from sensor_msgs.msg import CompressedImage, Image
 import imitator.utils.ros_utils as RosUtils
 import imitator.utils.file_utils as FileUtils
 
@@ -46,6 +44,8 @@ def main(args):
     data.attrs["num_obs"] = 1
     data.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
+    img_bridge = CvBridge()
+
     for i, bag in enumerate(tqdm(rosbags)):
         obs_buf = []
 
@@ -54,11 +54,9 @@ def main(args):
 
         for topic, msg, t in bag_reader.read_messages(topics=[topic_name]):
             if config.obs[args.obs_key].msg_type == "CompressedImage":
-                obs_data =  cv2.cvtColor(
-                    CvBridge().compressed_imgmsg_to_cv2(msg), cv2.COLOR_BGR2RGB
-                )
+                obs_data =  img_bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
             elif config.obs[args.obs_key].msg_type == "Image":
-                obs_data = CvBridge().imgmsg_to_cv2(msg, "rgb8")
+                obs_data = img_bridge.imgmsg_to_cv2(msg, "rgb8")
             else:
                 raise NotImplementedError
 
@@ -84,7 +82,6 @@ def main(args):
                     )
                 )
                 obs_data = tunable(obs_data)
-
             obs_buf.append(obs_data)
 
         obs_data = np.array(obs_buf)
@@ -95,7 +92,6 @@ def main(args):
         )
 
         demo.attrs["num_samples"] = len(obs_data)
-
 
         data_file.flush()
 
