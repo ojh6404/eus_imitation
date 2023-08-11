@@ -26,12 +26,17 @@
           robot-action-type ;; end-effector pose or joint angle
           robot-state ;; state representated as a float vector
           robot-state-type ;; end-effector pose or joint angle or something else
+          joint-state
+          joint-velocity
+          control-arm
 
 
           ;; ros settings
           node-name
           robot-action-topic-name
           robot-state-topic-name
+          robot-joint-state-topic-name
+          robot-joint-velocity-topic-name
           record-trigger-service-name
           remove-trigger-service-name
           larm-gripper-status-topic-name
@@ -125,13 +130,14 @@
           rarm-tf-base->gripperref))
 
 (defmethod robot-imitation-interface
-  (:init  (&key (loop-enable t) (imitation nil))
+  (:init  (&key (loop-enable t) (imitation nil) (arm :rarm))
+
+   (print (list "te tet et est estest estes " arm))
    ;; set eus robot interface
    (send self :set-val 'robot-interface *ri*)
    (send self :set-val 'data-collection (not imitation)) ;; mode
    (send self :set-val 'robot-action nil)
-
-
+   (send self :set-val 'control-arm arm)
 
    ;; for IK
    (send self :set-val 'ik-stop-step 10)
@@ -164,6 +170,8 @@
    (send self :set-val 'rate 10)
    (send self :set-val 'robot-action-topic-name "/eus_imitation/robot_action")
    (send self :set-val 'robot-state-topic-name "/eus_imitation/robot_state")
+   (send self :set-val 'robot-joint-state-topic-name "/eus_imitation/joint_state")
+   (send self :set-val 'robot-joint-velocity-topic-name "/eus_imitation/joint_velocity")
    (send self :set-val 'record-trigger-service-name "/eus_imitation/rosbag_record_trigger")
    (send self :set-val 'remove-trigger-service-name "/eus_imitation/rosbag_remove_trigger")
    (send self :reset)
@@ -225,12 +233,6 @@
     (send self :set-arm-val arm :prev-grip nil)
     (send self :set-arm-val arm :grip-count 0))
 
-  ;; TODO
-  ;; (:set-control-joints ()
-  ;;   (setq *init-pose* (send self :update-robot-model))
-  ;;   (ros::ros-info "Set init pose : ~A" *init-pose*)
-  ;;   (send self :set-val 'init-pose *init-pose*)
-  ;;   (dump-loadable-structure "init-pose.l" *init-pose*))
   (:set-init-pose ()
     (setq *init-pose* (send self :update-robot))
     (ros::ros-info "Set init pose : ~A" *init-pose*)
@@ -307,7 +309,7 @@
   (:update-robot-state () ;; this should be defined by user, as an abstract method. here is an example.
       (let (end-effector-pos joint-state gripper-pos)
         (setq end-effector-pos (send (send (send self :get-arm-val :rarm :current-end-coords) :copy-worldcoords) :worldpos))
-        (setq joint-state (send self :get-arm-val :rarm :joint-state))
+        (setq joint-state (send self :get-arm-val (send self :get-val 'control-arm) :joint-state))
         (setq gripper-pos (float-vector (send self :get-arm-val :rarm :gripper-pos)))
         (send self :set-val 'robot-state (concatenate float-vector end-effector-pos gripper-pos))))
   (:inverse-kinematics (arm target-coords &rest args)
@@ -562,8 +564,11 @@
       (send self :publish-robot-state)
       (send *irtviewer* :draw-objects)
 
+      (print "test fot roseus ")
+      (print (list arm (send self :get-arm-val arm :enable)))
 
-      (if (send self :get-arm-val arm :enable)
+      ;; (if (send self :get-arm-val arm :enable)
+      (if (send self :get-arm-val :rarm :enable)
         (progn
           ;; update robot action and publish when data collection
           (if (send self :get-val 'data-collection)
@@ -574,7 +579,7 @@
           (if (send self :get-val 'robot-action)
             (send self :execute-action))))))
 
-  (:main-loop (&key (arm :rarm) (imitation nil) (rot nil))
+  (:main-loop (&key (arm :rarm) (imitation nil))
     (send self :update-robot)
     (send self :init-pose)
 
