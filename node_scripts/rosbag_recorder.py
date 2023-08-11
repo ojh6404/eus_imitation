@@ -45,6 +45,11 @@ class RosbagRecorderNode(object):
 
         self.action_topic = self.config.actions.topic_name
         self.record_topics.append(self.action_topic)
+
+        # just for record
+        self.record_topics.append("/joint_states").append("/tf")
+        self.record_topics = list(set(self.record_topics))
+
         rospy.loginfo("Recording topics : {}".format(self.record_topics))
 
         self.is_record = False
@@ -80,9 +85,7 @@ class RosbagRecorderNode(object):
 
     def create_cmd_rosbag(self, rosbag_filepath):
         cmd_rosbag = ["rosbag", "record"]
-        record_topics = list(set(self.record_topics + ["/tf"]))
-        # record_topics = self.record_topics
-        cmd_rosbag.extend(record_topics)
+        cmd_rosbag.extend(self.record_topics)
         cmd_rosbag.extend(["--output-name", rosbag_filepath])
         return cmd_rosbag
 
