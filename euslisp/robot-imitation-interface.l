@@ -56,7 +56,11 @@
           rarm-grasp
           rarm-grasping-p
           larm-current-end-coords
+          larm-current-end-pos
+          larm-current-end-rpy
           rarm-current-end-coords
+          rarm-current-end-pos
+          rarm-current-end-rpy
           recording
           tracking
           larm-tracking
@@ -73,7 +77,6 @@
 
           ;; for IK and pose
           scale
-          arm-cb-solve-ik
           ik-stop-step
           av-tm
           av-scale
@@ -118,6 +121,13 @@
           rarm-prev-grip
           rarm-grip-count
 
+          larm-target-coords
+          rarm-target-coords
+          larm-target-end-pos
+          rarm-target-end-pos
+          larm-target-end-rpy
+          rarm-target-end-rpy
+
           ;; get tf to control robot with vive controller
           ;; larm-tf-world->controllerref
           ;; rarm-tf-world->controllerref
@@ -126,18 +136,22 @@
           head-frame-id
           larm-tf-vrbase->controllerref
           larm-tf-base->gripperref
+          larm-tf-controllerref->controller
+          larm-tf-gripperref->gripper
           rarm-tf-vrbase->controllerref
-          rarm-tf-base->gripperref))
+          rarm-tf-base->gripperref
+          rarm-tf-controllerref->controller
+          rarm-tf-gripperref->gripper))
 
 (defmethod robot-imitation-interface
-  (:init  (&key (loop-enable t) (imitation nil) (arm :rarm))
+  (:init  (&key (imitation nil))
 
-   (print (list "te tet et est estest estes " arm))
    ;; set eus robot interface
    (send self :set-val 'robot-interface *ri*)
    (send self :set-val 'data-collection (not imitation)) ;; mode
    (send self :set-val 'robot-action nil)
-   (send self :set-val 'control-arm arm)
+   (send self :set-val 'control-arm nil)
+   (send self :set-val 'loop-enable nil)
 
    ;; for IK
    (send self :set-val 'ik-stop-step 10)
@@ -185,6 +199,7 @@
     (if (send self :get-val 'data-collection)
       (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
 
+
     (if larm-controller-device-id
       (progn
         (send self :set-arm-val :larm :controller-frame-id
@@ -218,6 +233,9 @@
     (send self :set-val 'tracking nil)
     (send self :set-arm-val :larm :tracking nil)
     (send self :set-arm-val :rarm :tracking nil)
+
+    (send self :set-arm-val arm :current-end-pos nil)
+    (send self :set-arm-val arm :current-end-rpy nil)
 
     ;; for vive
     (send self :set-arm-val arm :trigger nil)
@@ -267,8 +285,12 @@
         (return-from :get-arm-val nil)))
     (let ((valname (format nil "~A-~A" (string-upcase arm) (string-upcase name))))
       (if (eq arm :arms)
-          (return-from :get-arm-val (list (send self :get-arm-val :larm name)
-                                          (send self :get-arm-val :rarm name))))
+        (progn
+          (if (and (eq (send self :get-arm-val :larm name) nil)  (eq (send self :get-arm-val :rarm name) nil))
+            (return-from :get-arm-val nil)
+            (progn
+              (return-from :get-arm-val (list (send self :get-arm-val :larm name)
+                                              (send self :get-arm-val :rarm name)))))))
       (if (find (read-from-string valname) (mapcar #'car (cdr (send self :slots))))
         (send self :get-val (intern valname)))))
   (:set-arm-val (arm name val)
@@ -279,8 +301,13 @@
     (let ((valname (format nil "~A-~A" (string-upcase arm) (string-upcase name))))
       (if (eq arm :arms)
         (progn
-          (send self :set-arm-val :larm name val)
-          (send self :set-arm-val :rarm name val))
+          (if (listp val)
+            (progn
+              (send self :set-arm-val :larm name (first val))
+              (send self :set-arm-val :rarm name (second val)))
+            (progn
+              (send self :set-arm-val :larm name val)
+              (send self :set-arm-val :rarm name val))))
         (send self :set-val (intern valname) val))))
 
   (:update-robot-model ()
@@ -288,8 +315,16 @@
   (:update-current-end-coords ()
        (send self :set-arm-val :larm :current-end-coords
              (send robot :larm :end-coords :copy-worldcoords))
+       (send self :set-arm-val :larm :current-end-pos
+             (send (send self :get-arm-val :larm :current-end-coords) :worldpos))
+       (send self :set-arm-val :larm :current-end-rpy
+             (elt (rpy-angle (send (send self :get-arm-val :larm :current-end-coords) :worldrot)) 0))
        (send self :set-arm-val :rarm :current-end-coords
-             (send robot :rarm :end-coords :copy-worldcoords)))
+             (send robot :rarm :end-coords :copy-worldcoords))
+       (send self :set-arm-val :rarm :current-end-pos
+             (send (send self :get-arm-val :rarm :current-end-coords) :worldpos))
+       (send self :set-arm-val :rarm :current-end-rpy
+             (elt (rpy-angle (send (send self :get-arm-val :rarm :current-end-coords) :worldrot)) 0)))
   (:update-current-gripper-pos ()
        (send self :set-arm-val :larm :gripper-pos
              (send robot-interface :gripper :larm :position))
@@ -309,7 +344,6 @@
   (:update-robot-state () ;; this should be defined by user, as an abstract method. here is an example.
       (let (end-effector-pos joint-state gripper-pos)
         (setq end-effector-pos (send (send (send self :get-arm-val :rarm :current-end-coords) :copy-worldcoords) :worldpos))
-        (setq joint-state (send self :get-arm-val (send self :get-val 'control-arm) :joint-state))
         (setq gripper-pos (float-vector (send self :get-arm-val :rarm :gripper-pos)))
         (send self :set-val 'robot-state (concatenate float-vector end-effector-pos gripper-pos))))
   (:inverse-kinematics (arm target-coords &rest args)
@@ -362,12 +396,21 @@
     (let (tf-vrbase->controllerref tf-base->gripperref)
       (ros::ros-info "Calibrating controller ~A" arm)
       (send self :update-robot)
-      (send self :set-arm-val arm :tf-vrbase->controllerref (make-coords
-                                         :pos (send (send self :get-vrbase->controller-coords arm) :pos)
-                                         :rot (send (send self :get-vrbase->controller-coords arm) :rot)))
-      (send self :set-arm-val arm :tf-base->gripperref (make-coords
-                                          :pos (send (send self :get-arm-val arm :current-end-coords) :pos)
-                                          :rot (send (send self :get-arm-val arm :current-end-coords) :rot)))))
+      (if (eq arm :arms) ;; when control both arms
+          (progn
+            (send self :set-arm-val :larm :tf-vrbase->controllerref (make-coords
+                                              :pos (send (send self :get-vrbase->controller-coords :larm) :pos)
+                                              :rot (send (send self :get-vrbase->controller-coords :larm) :rot)))
+            (send self :set-arm-val :rarm :tf-base->gripperref (make-coords
+                                                :pos (send (send self :get-arm-val :rarm :current-end-coords) :pos)
+                                                :rot (send (send self :get-arm-val :rarm :current-end-coords) :rot))))
+          (progn
+            (send self :set-arm-val arm :tf-vrbase->controllerref (make-coords
+                                              :pos (send (send self :get-vrbase->controller-coords arm) :pos)
+                                              :rot (send (send self :get-vrbase->controller-coords arm) :rot)))
+            (send self :set-arm-val arm :tf-base->gripperref (make-coords
+                                                :pos (send (send self :get-arm-val arm :current-end-coords) :pos)
+                                                :rot (send (send self :get-arm-val arm :current-end-coords) :rot)))))))
   (:get-vrbase->controller-coords (arm &key (wait-trigger nil) (wait-time 0.1))
     (let ((controller-frame-id (send self :get-arm-val arm :controller-frame-id))
           (start-time (ros::time 0))
@@ -386,17 +429,22 @@
                   (send self :controller-trigger-button-p arm :button-toggle t))
             (ros::spin-once)
             (ros::sleep))))
+      ;; (print (list "what arm" arm))
+      ;; (print (list "controller-frame-id: " controller-frame-id))
       (send tfl :wait-for-transform vrbase-frame-id controller-frame-id start-time wait-time)
       (setq coords (send tfl :lookup-transform vrbase-frame-id controller-frame-id start-time))
       coords))
   (:get-target-coords (arm &key (pos-scale 1.5))
     (let* ((tf-vrbase->controller (send self :get-vrbase->controller-coords arm))
-          (tf-base->gripperref (send self :get-arm-val arm :tf-base->gripperref))
-          (tf-controllerref->controller (send (send (send self :get-arm-val arm :tf-vrbase->controllerref) :transformation tf-vrbase->controller) :copy-worldcoords))
-          (tf-gripperref->gripper (make-coords
-                                      :pos (scale pos-scale (send tf-controllerref->controller :pos))
-                                      :rot (send tf-controllerref->controller :rot)))
-          (target-coords (send tf-gripperref->gripper :transform (send tf-base->gripperref :copy-worldcoords) :world)))
+            (tf-base->gripperref (send self :get-arm-val arm :tf-base->gripperref))
+            (tf-controllerref->controller (send (send (send self :get-arm-val arm :tf-vrbase->controllerref) :transformation tf-vrbase->controller) :copy-worldcoords))
+            (tf-gripperref->gripper (make-coords
+                                        :pos (scale pos-scale (send tf-controllerref->controller :pos))
+                                        :rot (send tf-controllerref->controller :rot)))
+            (target-coords (send tf-gripperref->gripper :transform (send tf-base->gripperref :copy-worldcoords) :world)))
+          (send self :set-arm-val arm :target-coords target-coords)
+          (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
+          (send self :set-arm-val arm :target-end-rpy  (elt (rpy-angle (send target-coords :worldrot)) 0))
       target-coords))
 
   (:controller-button-cb (arm msg)
@@ -466,7 +514,14 @@
                 (cons controller-button-p button-p)))))
         (if controller-button-p (cons controller-button-p button-p)))))
   (:enable-cb (arm &key (mirror nil) (button :trackpad))
-    (send self :loop-enable-arm arm :mirror mirror :button button))
+    (send self :loop-enable-arm arm :mirror mirror :button button)
+    (if (and (send self :get-arm-val :larm :enable) (send self :get-arm-val :rarm :enable))
+      (send self :set-val 'control-arm :arms)
+      (if (send self :get-arm-val :larm :enable)
+        (send self :set-val 'control-arm :larm)
+        (if (send self :get-arm-val :rarm :enable)
+          (send self :set-val 'control-arm :rarm)
+          (send self :set-val 'control-arm nil)))))
   (:loop-enable-arm (arm &key (mirror nil) (button :trackpad))
     (let ((enable-button-p
             (send self :controller-button-p
@@ -481,23 +536,11 @@
                     :controller-type (send self :get-arm-controller arm))
               (if (find-method robot-interface :torso-controller)
                 (send robot-interface :cancel-angle-vector :controller-type :torso-controller))
-              (ros::ros-info "arm: ~A stopping" arm)
-              ;; (data-collection-stop)
-              ;; (unix:usleep (* 1000 100))
-              (ros::wait-for-service record-trigger-service-name 1)
-              (setq req (instance std_srvs::TriggerRequest :init))
-              (setq res (ros::service-call record-trigger-service-name req))
-              (send self :set-val 'recording nil))
+              (ros::ros-info "arm: ~A stopping" arm))
             (progn
               (send self :update-robot)
               (ros::ros-info "arm: ~A starting" arm)
-              (send self :calib-controller arm)
-              (ros::wait-for-service record-trigger-service-name 1)
-              (setq req (instance std_srvs::TriggerRequest :init))
-              (setq res (ros::service-call record-trigger-service-name req nil))
-              ;; (unix:usleep (* 1000 1000))
-              ;; (data-collection-start :filename nil)
-              (send self :set-val 'recording t)))
+              (send self :calib-controller arm)))
           (send self :set-arm-val arm :enable (not enable-p))))))
   (:record-cb (&key (button :menu))
     (let (req res (record-button-p
@@ -507,19 +550,33 @@
           (progn
             (if record-p
               (progn
+              ;; (data-collection-stop)
+              ;; (unix:usleep (* 1000 100))
+                (ros::ros-info "recording stop")
                 (ros::wait-for-service record-trigger-service-name 1)
                 (setq req (instance std_srvs::TriggerRequest :init))
                 (setq res (ros::service-call record-trigger-service-name req))
                 (send self :set-val 'recording nil))
               (progn
+              ;; (unix:usleep (* 1000 1000))
+              ;; (data-collection-start :filename nil)
+                (ros::ros-info "recording start")
                 (ros::wait-for-service record-trigger-service-name 1)
                 (setq req (instance std_srvs::TriggerRequest :init))
                 (setq res (ros::service-call record-trigger-service-name req nil))
                 (send self :set-val 'recording t)))
             (send self :set-val 'recording (not record-p))))))
-  (:init-cb (&key (button :grip))
+  (:remove-cb (&key (button :menu))
+    (let (req res (remove-button-p
+            (send self :controller-button-p :larm button :button-toggle t)))
+      (if remove-button-p
+          (progn
+            (ros::wait-for-service remove-trigger-service-name 1)
+            (setq req (instance std_srvs::TriggerRequest :init))
+            (setq res (ros::service-call remove-trigger-service-name req))))))
+  (:init-cb (arm &key (button :grip))
     (let ((init-button-p
-            (send self :controller-button-p :rarm button :button-toggle t)))
+            (send self :controller-button-p arm button :button-toggle t)))
       (if init-button-p
           (progn
             (ros::ros-info "Inititalizing robot...")
@@ -529,23 +586,18 @@
             (ros::ros-info "Initiailized")))))
   (:gripper-cb (arm &key (wait nil) (button :trigger))
     (if (send self :get-arm-val arm button)
-        (send self :set-arm-val arm :grasp 1)
+        (send self :set-arm-val arm :grasp 1) ;;  we can set this t or nil but in case of use of this variable as state
         (send self :set-arm-val arm :grasp 0)))
-  (:remove-cb (&key (button :menu))
-    (let (req res (remove-button-p
-            (send self :controller-button-p :larm button :button-toggle t)))
-      (if remove-button-p
-          (progn
-            (ros::wait-for-service remove-trigger-service-name 1)
-            (setq req (instance std_srvs::TriggerRequest :init))
-            (setq res (ros::service-call remove-trigger-service-name req))))))
-  (:button-cb (arm)
-    ;; (send self :enable-cb :rarm :mirror nil :button :trackpad)
-    (send self :enable-cb arm :mirror nil :button :trackpad)
-    (send self :record-cb :button :menu)
-    (send self :init-cb :button :grip)
-    (send self :gripper-cb arm :wait nil :button :trigger)
-    (send self :remove-cb :button :menu))
+  (:button-cb ()
+    (send self :enable-cb :larm :mirror nil :button :trackpad) ;; check trackpad button to enable/disable arm
+    (send self :enable-cb :rarm :mirror nil :button :trackpad) ;; check trackpad button to enable/disable arm
+    (send self :gripper-cb :larm :wait nil :button :trigger) ;; check trigger button to open/close gripper
+    (send self :gripper-cb :rarm :wait nil :button :trigger) ;; check trigger button to open/close gripper
+    (send self :record-cb :button :menu) ;; check menu button to start/stop recording
+    (send self :remove-cb :button :menu) ;; check menu button to remove rosbag recording
+    (send self :init-cb :larm :button :grip) ;; check grip button to initialize robot
+    (send self :init-cb :rarm :button :grip) ;; check grip button to initialize robot
+    )
   (:publish-robot-state ()
     (setq robot-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
     (send robot-state-msg :data (send self :get-val 'robot-state))
@@ -557,44 +609,49 @@
     (send robot-action-msg :header :stamp (ros::time-now))
     (ros::publish robot-action-topic-name robot-action-msg))
 
-  (:main-loop-step (&key (arm :rarm))
-    (let ((ref-coords))
-      (send self :button-cb arm)
+  (:main-loop-step ()
+      (send self :button-cb)
       (send self :update-robot)
       (send self :publish-robot-state)
       (send *irtviewer* :draw-objects)
 
-      (print "test fot roseus ")
-      (print (list arm (send self :get-arm-val arm :enable)))
+      (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
+        (progn ;; when data collection is enabled and arm control is enabled
+          (if (eq control-arm :arms)
+                (progn ;; when both arms are enabled
+                  (send self :get-target-coords :larm :pos-scale scale)
+                  (send self :get-target-coords :rarm :pos-scale scale)
+                  (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords)))
+                  (send self :update-robot-action)
+                  (send self :publish-robot-action)
+                  )
+                (progn ;; when one arm is enabled
+                  (send self :get-target-coords control-arm :pos-scale scale)
+                  (send self :inverse-kinematics control-arm (send self :get-arm-val control-arm :target-coords))
+                  ))
+          (send self :angle-command-vector control-arm :torso nil)
+          (if (> (send self :get-arm-val :larm :grasp) 0.5)
+              (send self :start-grasp :larm :wait nil)
+              (send self :stop-grasp :larm :wait nil))
+          (if (> (send self :get-arm-val :rarm :grasp) 0.5)
+              (send self :start-grasp :rarm :wait nil)
+              (send self :stop-grasp :rarm :wait nil)))
+        (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
+          (send self :parse-robot-action))))
 
-      ;; (if (send self :get-arm-val arm :enable)
-      (if (send self :get-arm-val :rarm :enable)
-        (progn
-          ;; update robot action and publish when data collection
-          (if (send self :get-val 'data-collection)
-            (progn
-              (send self :update-robot-action)
-              (send self :publish-robot-action)))
-          ;; execute action
-          (if (send self :get-val 'robot-action)
-            (send self :execute-action))))))
-
-  (:main-loop (&key (arm :rarm) (imitation nil))
+  (:main-loop (&key (imitation nil))
     (send self :update-robot)
     (send self :init-pose)
 
-    (if imitation
+    (if imitation ;; TODO
         (progn
           (ros::ros-info "Imitation control enabled")
-          (send self :set-val 'loop-enable t)
-          (send self :set-arm-val arm :enable t)
           (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1)))
-
 
     ;; (send *ri* :speak "I'm ready to start." :wait nil :volume 0.6)
     (while (ros::ok)
       (ros::rate rate) ;; need to set every loop, otherwise it will be too fast. I don't know why.
-      (send self :main-loop-step :arm arm)
+      (send self :main-loop-step)
       (ros::spin-once)
       (ros::sleep))))
 

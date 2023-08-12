@@ -47,7 +47,8 @@ class RosbagRecorderNode(object):
         self.record_topics.append(self.action_topic)
 
         # just for record
-        self.record_topics.append("/joint_states").append("/tf")
+        self.record_topics.append("/joint_states")
+        self.record_topics.append("/tf")
         self.record_topics = list(set(self.record_topics))
 
         rospy.loginfo("Recording topics : {}".format(self.record_topics))
