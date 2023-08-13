@@ -127,6 +127,8 @@
           rarm-target-end-pos
           larm-target-end-rpy
           rarm-target-end-rpy
+          larm-target-gripper-pos
+          rarm-target-gripper-pos
 
           ;; get tf to control robot with vive controller
           ;; larm-tf-world->controllerref
@@ -229,6 +231,7 @@
     (send self :set-arm-val arm :current-end-coords nil)
     (send self :set-arm-val arm :gripper-pos nil)
     (send self :set-arm-val arm :joint-state nil)
+    (send self :set-arm-val arm :target-gripper-pos 0.09)
 
     (send self :set-val 'tracking nil)
     (send self :set-arm-val :larm :tracking nil)
@@ -392,6 +395,18 @@
      (send robot-interface :start-grasp arm :wait wait))
   (:stop-grasp (arm &key (wait nil))
      (send robot-interface :stop-grasp arm :wait wait))
+  (:move-gripper (arm pos &key (delta nil) (g 0.01) (wait nil) ) ;; open : pos-abs=0.0, close : pos-abs=0.09
+      (let (current-pos scaled-current-pos target-pos )
+        (if delta
+          (progn
+            (setq current-pos (send self :get-arm-val arm :gripper-pos))
+            (setq scaled-current-pos (* current-pos (/ 0.09 81.7714))) ;; scale pos 81.7714 -> 0.09, 0.0 -> 0.0
+            (setq target-pos (+ scaled-current-pos pos)))
+          (setq target-pos pos))
+        (if (> target-pos 0.09) (setq target-pos 0.09))
+        (if (< target-pos 0.0) (setq target-pos 0.0))
+        (send self :set-arm-val arm :target-gripper-pos target-pos)
+        (send robot-interface :move-gripper arm target-pos :effort (* 2000 g) :wait wait)))
   (:calib-controller (arm)
     (let (tf-vrbase->controllerref tf-base->gripperref)
       (ros::ros-info "Calibrating controller ~A" arm)
@@ -630,12 +645,21 @@
       ;;             (send self :inverse-kinematics control-arm (send self :get-arm-val control-arm :target-coords))
       ;;             ))
       ;;     (send self :angle-command-vector control-arm :torso nil)
+      ;;     ;; (if (> (send self :get-arm-val :larm :grasp) 0.5)
+      ;;     ;;     (send self :start-grasp :larm :wait nil)
+      ;;     ;;     (send self :stop-grasp :larm :wait nil))
+      ;;     ;; (if (> (send self :get-arm-val :rarm :grasp) 0.5)
+      ;;     ;;     (send self :start-grasp :rarm :wait nil)
+      ;;     ;;     (send self :stop-grasp :rarm :wait nil))
+
       ;;     (if (> (send self :get-arm-val :larm :grasp) 0.5)
       ;;         (send self :start-grasp :larm :wait nil)
       ;;         (send self :stop-grasp :larm :wait nil))
       ;;     (if (> (send self :get-arm-val :rarm :grasp) 0.5)
       ;;         (send self :start-grasp :rarm :wait nil)
-      ;;         (send self :stop-grasp :rarm :wait nil)))
+      ;;         (send self :stop-grasp :rarm :wait nil))
+
+      ;;     )
       ;;   (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
       ;;     (send self :parse-robot-action))))
 
@@ -646,21 +670,33 @@
                   (send self :get-target-coords :larm :pos-scale scale)
                   (send self :get-target-coords :rarm :pos-scale scale)
                   (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords)))
+                  ;; (send self :update-robot-action)
+                  ;; (send self :publish-robot-action)
                   )
                 (progn ;; when one arm is enabled
                   (send self :get-target-coords control-arm :pos-scale scale)
-                  (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+                  ;; (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+                  (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (send self :get-arm-val :rarm :target-end-rpy)))
+                  ;; (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (send self :get-arm-val :rarm :target-end-rpy)))
                   (send self :inverse-kinematics control-arm rarm-target-end-effector-coords)
                   (send self :update-robot-action)
                   (send self :publish-robot-action)
                   ))
           (send self :angle-command-vector control-arm :torso nil)
+          ;; (if (> (send self :get-arm-val :larm :grasp) 0.5)
+          ;;     (send self :start-grasp :larm :wait nil)
+          ;;     (send self :stop-grasp :larm :wait nil))
+          ;; (if (> (send self :get-arm-val :rarm :grasp) 0.5)
+          ;;     (send self :start-grasp :rarm :wait nil)
+          ;;     (send self :stop-grasp :rarm :wait nil))
+
           (if (> (send self :get-arm-val :larm :grasp) 0.5)
-              (send self :start-grasp :larm :wait nil)
-              (send self :stop-grasp :larm :wait nil))
+              (send self :move-gripper :larm -0.05 :delta t :wait nil)
+              (send self :move-gripper :larm 0.05 :delta t :wait nil))
           (if (> (send self :get-arm-val :rarm :grasp) 0.5)
-              (send self :start-grasp :rarm :wait nil)
-              (send self :stop-grasp :rarm :wait nil)))
+              (send self :move-gripper :rarm -0.05 :delta t :wait nil)
+              (send self :move-gripper :rarm 0.05 :delta t :wait nil))
+          )
         (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
           (send self :parse-robot-action))))
 
