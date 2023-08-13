@@ -158,7 +158,7 @@
     (send self :set-val 'av-tm 800)
     (send self :set-val 'av-scale 5.0)
     (send self :set-val 'min-time 0.3)
-   (send self :set-val 'scale 1.5)
+   (send self :set-val 'scale 1.0)
    ;; (send self :set-val 'av-tm 200)
    ;; (send self :set-val 'av-scale 2.0)
    ;; (send self :set-val 'min-time 0.1)
@@ -615,6 +615,30 @@
       (send self :publish-robot-state)
       (send *irtviewer* :draw-objects)
 
+      ;; (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
+      ;;   (progn ;; when data collection is enabled and arm control is enabled
+      ;;     (if (eq control-arm :arms)
+      ;;           (progn ;; when both arms are enabled
+      ;;             (send self :get-target-coords :larm :pos-scale scale)
+      ;;             (send self :get-target-coords :rarm :pos-scale scale)
+      ;;             (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords)))
+      ;;             (send self :update-robot-action)
+      ;;             (send self :publish-robot-action)
+      ;;             )
+      ;;           (progn ;; when one arm is enabled
+      ;;             (send self :get-target-coords control-arm :pos-scale scale)
+      ;;             (send self :inverse-kinematics control-arm (send self :get-arm-val control-arm :target-coords))
+      ;;             ))
+      ;;     (send self :angle-command-vector control-arm :torso nil)
+      ;;     (if (> (send self :get-arm-val :larm :grasp) 0.5)
+      ;;         (send self :start-grasp :larm :wait nil)
+      ;;         (send self :stop-grasp :larm :wait nil))
+      ;;     (if (> (send self :get-arm-val :rarm :grasp) 0.5)
+      ;;         (send self :start-grasp :rarm :wait nil)
+      ;;         (send self :stop-grasp :rarm :wait nil)))
+      ;;   (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
+      ;;     (send self :parse-robot-action))))
+
       (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
         (progn ;; when data collection is enabled and arm control is enabled
           (if (eq control-arm :arms)
@@ -622,12 +646,13 @@
                   (send self :get-target-coords :larm :pos-scale scale)
                   (send self :get-target-coords :rarm :pos-scale scale)
                   (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords)))
-                  (send self :update-robot-action)
-                  (send self :publish-robot-action)
                   )
                 (progn ;; when one arm is enabled
                   (send self :get-target-coords control-arm :pos-scale scale)
-                  (send self :inverse-kinematics control-arm (send self :get-arm-val control-arm :target-coords))
+                  (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+                  (send self :inverse-kinematics control-arm rarm-target-end-effector-coords)
+                  (send self :update-robot-action)
+                  (send self :publish-robot-action)
                   ))
           (send self :angle-command-vector control-arm :torso nil)
           (if (> (send self :get-arm-val :larm :grasp) 0.5)
@@ -638,6 +663,7 @@
               (send self :stop-grasp :rarm :wait nil)))
         (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
           (send self :parse-robot-action))))
+
 
   (:main-loop (&key (imitation nil))
     (send self :update-robot)

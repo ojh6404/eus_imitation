@@ -61,6 +61,7 @@ class RosbagRecorderNode(object):
             "/eus_imitation/rosbag_remove_trigger", Trigger, self.remove_rosbag_cb
         )
         self.sound_client = SoundClient()
+        self.volume = 0.5
 
     def switch_record_state_cb(self, req):
         if self.is_record:
@@ -74,14 +75,14 @@ class RosbagRecorderNode(object):
         self.check_rosbag_files()
         if self.file_cnt == 0:
             rospy.loginfo("No rosbag file")
-            self.sound_client.say("No rosbag file")
+            self.sound_client.say("No rosbag file", volume=self.volume)
         else:
             remove_filepath = os.path.join(self.record_dir, self.rosbag_files[-1])
             if os.path.isfile(remove_filepath):
                 os.remove(remove_filepath)
                 self.rosbag_files.pop()
                 rospy.loginfo("Remove rosbag : {}".format(self.file_cnt - 1))
-                self.sound_client.say("Delete rosbag {}".format(self.file_cnt - 1))
+                self.sound_client.say("Delete rosbag {}".format(self.file_cnt - 1), volume=self.volume)
         return TriggerResponse(success=True, message="remove rosbag")
 
     def create_cmd_rosbag(self, rosbag_filepath):
@@ -120,7 +121,7 @@ class RosbagRecorderNode(object):
                         os.kill(p.pid, signal.SIGTERM)
                         break
 
-        self.sound_client.say("Start saving rosbag")
+        self.sound_client.say("Start saving rosbag", volume=self.volume)
         thread = RosbagRecorder()
         thread.start()
         self.is_record = not self.is_record
@@ -134,7 +135,7 @@ class RosbagRecorderNode(object):
         self.closure_stop()
         self.closure_stop = None
         self.sound_client.say(
-            "Finish saving rosbag. Total number is {}".format(self.file_cnt + 1)
+            "Finish saving rosbag. Total number is {}".format(self.file_cnt + 1), volume=self.volume
         )
         rospy.loginfo("Stop record rosbag : {}".format(self.file_cnt))
         self.is_record = not self.is_record

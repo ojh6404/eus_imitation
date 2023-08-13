@@ -49,7 +49,7 @@ class ROSRollout(RolloutBase):
         rospy.init_node("rollout_node")
         self.bridge = CvBridge()
         self.action_pub = rospy.Publisher(
-            "/eus_imitation/policy_action", Float32MultiArrayStamped, queue_size=1
+            "/eus_imitation/robot_action", Float32MultiArrayStamped, queue_size=1
         )  # TODO
         self.image_obs_pubs = []
         for image_obs in self.image_obs:
