@@ -41,12 +41,12 @@ def main(args):
 
     if args.verbose:
         print("=============================")
-        print("Date: {}".format(f["data"].attrs["date"]))
-        print(
-            "Config: \n{}".format(
-                json.dumps(json.loads(f["data"].attrs["config"]), indent=4)
-            )
-        )
+        # print("Date: {}".format(f["data"].attrs["date"]))
+        # print(
+        #     "Config: \n{}".format(
+        #         json.dumps(json.loads(f["data"].attrs["config"]), indent=4)
+        #     )
+        # )
         print("Demo Lenghts: {}".format(traj_lengths))
         print("=============================")
         print("=============================")
@@ -58,8 +58,6 @@ def main(args):
             print("First data: {}".format(f["data"][demos[0]]["obs"][obs][0]))
             print("")
         if "actions" in f["data"][demos[0]].keys():
-            print("Actions max: {}".format(f["data"].attrs["action_max"]))
-            print("Actions min: {}".format(f["data"].attrs["action_min"]))
             print("First data: {}".format(f["data"][demos[0]]["actions"][0]))
 
         print("")
