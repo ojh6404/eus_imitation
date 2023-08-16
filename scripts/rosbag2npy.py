@@ -6,6 +6,7 @@ from tqdm import tqdm
 import os
 import re
 import time
+import pprint
 import numpy as np
 
 import rospy
@@ -96,6 +97,23 @@ def main(args):
                     data = CvBridge().compressed_imgmsg_to_cv2(msg, "rgb8").astype(np.uint8)
                 else:
                     data = CvBridge().imgmsg_to_cv2(msg, "rgb8").astype(np.uint8)
+                if args.image_tune: # tuning image with first data
+                    tunable = HSVBlurCropResolFilter.from_image(data)
+                    print("Press q to finish tuning")
+                    tunable.launch_window()
+                    tunable.start_tuning(data)
+                    pprint.pprint(tunable.export_dict())
+                    tunable.dump_yaml(
+                        os.path.join("data", "image_filter.yaml")
+                    )
+                    exit(0)
+                else:
+                    tunable = HSVBlurCropResolFilter.from_yaml(
+                        os.path.join(
+                            "data", "image_filter.yaml"
+                        )
+                    )
+                    data = tunable(data)
             else:
                 data = np.array(msg.data).astype(np.float32)
             data_buffer[topics_to_keys[topic_name]] = data
@@ -146,6 +164,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Synchronize messages from a rosbag.')
     parser.add_argument('-d', "--rosbag_dir", type=str, help='The name of the input bag file directory.')
     parser.add_argument('-r', "--ratio", type=float, help="train/val ratio. e.g. 0.8", default=0.8)
+    parser.add_argument("-t", "--image_tune", action="store_true", default=False)
     parser.add_argument("--gif", action="store_true", help="save gif")
     args = parser.parse_args()
     main(args)
