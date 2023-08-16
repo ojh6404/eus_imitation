@@ -192,10 +192,11 @@ def main(args):
         demo.attrs["num_samples"] = len(action_data)
         data_file.flush()
 
+        os.makedirs(os.path.join(output_dir, "gif"), exist_ok=True)
         if i % 5 == 0 and args.gif:
             clip = ImageSequenceClip(obs_buf["image"], fps=10) # TODO image key
             clip.write_gif(
-                os.path.join(output_dir, "demo_{}.gif".format(i)),
+                os.path.join(output_dir, "gif", "demo_{}.gif".format(i)),
                 fps=10,
                 verbose=False,
             )

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import random
 from tqdm import tqdm
 import os
-import glob
+import re
 import time
 import numpy as np
 
@@ -14,9 +15,25 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
 
+from moviepy.editor import ImageSequenceClip
+from tunable_filter.composite_zoo import HSVBlurCropResolFilter
+
 """
 Example script for convert rosbag to npy.
 """
+
+
+def extract_number(name):
+    match = re.search(r"\d+", name)
+    if match:
+        return int(match.group())
+    else:
+        return 0
+
+
+def sort_names_by_number(names):
+    sorted_names = sorted(names, key=extract_number)
+    return sorted_names
 
 class PatchTime(rospy.Time):
     """
@@ -35,16 +52,17 @@ class PatchTime(rospy.Time):
 rospy.Time = PatchTime
 
 def main(args):
-    rosbags = glob.glob(args.rosbag_dir + "/*.bag")
 
-    # train val split
-    # shuffle rosbags
-    np.random.shuffle(rosbags)
-    train_rosbags = rosbags[:int(len(rosbags) * args.ratio)]
-    val_rosbags = rosbags[int(len(rosbags) * args.ratio):]
-    print("Train rosbags : {}".format(train_rosbags))
-    print("Val rosbags : {}".format(val_rosbags))
-
+    # rosbag files should be ordered by recorded time, in absolute path
+    rosbags = []
+    for file in os.listdir(args.rosbag_dir):
+        if file.endswith(".bag"):
+            rosbags.append(file)
+    rosbags = sort_names_by_number(rosbags)
+    for i, file in enumerate(rosbags):
+        rosbags[i] = os.path.abspath(os.path.join(args.rosbag_dir, file))
+    train_rosbags = random.sample(rosbags, int(len(rosbags) * args.ratio))
+    val_rosbags = list(set(rosbags) - set(train_rosbags))
 
     # define keys and topics
     keys = ["image", "state", "action"]
@@ -86,8 +104,13 @@ def main(args):
     ts.registerCallback(callback)
 
     # process rosbags
+    train_num = 0
+    val_num = 0
+    os.makedirs("data", exist_ok=True)
+    os.makedirs("data/train", exist_ok=True)
+    os.makedirs("data/val", exist_ok=True)
     print("Start processing train rosbags...")
-    for i, bag in enumerate(tqdm(train_rosbags)):
+    for i, bag in enumerate(tqdm(rosbags)):
         bag_reader = rosbag.Bag(bag, skip_index=True)
         episode_buffer = list() # list of dicts with keys: image, state, action
 
@@ -97,29 +120,32 @@ def main(args):
                 subscriber.signalMessage(msg)
 
         # save episode buffer to npy
-        os.makedirs("data", exist_ok=True)
-        os.makedirs("data/train", exist_ok=True)
-        np.save("data/train/episode_{}.npy".format(i), episode_buffer)
+        if bag in train_rosbags:
+            np.save("data/train/episode_{}.npy".format(train_num), episode_buffer)
+            train_num += 1
+        elif bag in val_rosbags:
+            np.save("data/val/episode_{}.npy".format(val_num), episode_buffer)
+            val_num += 1
 
-    print("Start processing val rosbags...")
-    for i, bag in enumerate(tqdm(val_rosbags)):
-        bag_reader = rosbag.Bag(bag, skip_index=True)
-        episode_buffer = list() # list of dicts with keys: image, state, action
 
-        for message_idx, (topic, msg, t) in enumerate(bag_reader.read_messages(topics=topic_names)):
-            subscriber = subscriber_dict.get(topic)
-            if subscriber:
-                subscriber.signalMessage(msg)
-
-        # save episode buffer to npy
-        os.makedirs("data", exist_ok=True)
-        os.makedirs("data/val", exist_ok=True)
-        np.save("data/val/episode_{}.npy".format(i), episode_buffer)
+        if i % 1 == 0 and args.gif:
+            os.makedirs("data/gif", exist_ok=True)
+            # episode_buffer is list of dict
+            test_images = []
+            for data_buffer in episode_buffer:
+                test_images.append(data_buffer["image"])
+            clip = ImageSequenceClip(test_images, fps=10)
+            clip.write_gif(
+                os.path.join("data", "gif", "episode_{}.gif".format(i)),
+                fps=10,
+                verbose=False,
+            )
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Synchronize messages from a rosbag.')
     parser.add_argument('-d', "--rosbag_dir", type=str, help='The name of the input bag file directory.')
     parser.add_argument('-r', "--ratio", type=float, help="train/val ratio. e.g. 0.8", default=0.8)
+    parser.add_argument("--gif", action="store_true", help="save gif")
     args = parser.parse_args()
     main(args)
