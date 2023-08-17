@@ -35,6 +35,8 @@
           node-name
           robot-action-topic-name
           robot-state-topic-name
+          robot-larm-state-topic-name
+          robot-rarm-state-topic-name
           robot-joint-state-topic-name
           robot-joint-velocity-topic-name
           record-trigger-service-name
@@ -171,8 +173,11 @@
    (send self :set-val 'head-frame-id "head_tilt_link")
     (send self :set-val 'tfl (instance ros::transform-listener :init))
     (send self :set-val 'vrbase-frame-id (format nil "lighthouse_LHB_~A" "8E924CC3"))
-    (send self :set-arm-val :larm :controller-device-id "FD35BD42")
-    (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
+    ;; (send self :set-arm-val :larm :controller-device-id "FD35BD42")
+    ;; (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
+
+    (send self :set-arm-val :rarm :controller-device-id "FD35BD42")
+    (send self :set-arm-val :larm :controller-device-id "F7AFBF47")
 
     (send self :set-val 'recording nil)
     (send self :set-val 'trigger-wait-count 5)
@@ -186,6 +191,8 @@
    (send self :set-val 'rate 10)
    (send self :set-val 'robot-action-topic-name "/eus_imitation/robot_action")
    (send self :set-val 'robot-state-topic-name "/eus_imitation/robot_state")
+   (send self :set-val 'robot-larm-state-topic-name "/eus_imitation/l_arm_state")
+   (send self :set-val 'robot-rarm-state-topic-name "/eus_imitation/r_arm_state")
    (send self :set-val 'robot-joint-state-topic-name "/eus_imitation/joint_state")
    (send self :set-val 'robot-joint-velocity-topic-name "/eus_imitation/joint_velocity")
    (send self :set-val 'record-trigger-service-name "/eus_imitation/rosbag_record_trigger")
@@ -195,6 +202,8 @@
     self)
   (:ros-init ()
     (ros::advertise robot-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
+    (ros::advertise robot-larm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
+    (ros::advertise robot-rarm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
 
     ;; publish action topic when data collection
     ;; subscribe action topic when imitation
@@ -255,8 +264,9 @@
     (send self :set-arm-val arm :grip-count 0))
 
   (:set-init-pose ()
-    (setq *init-pose* (send self :update-robot))
+    (send self :update-robot)
     (ros::ros-info "Set init pose : ~A" *init-pose*)
+    (setq *init-pose* (send robot :angle-vector))
     (send self :set-val 'init-pose *init-pose*)
     (dump-loadable-structure "init-pose.l" *init-pose*))
   (:load-init-pose ()
@@ -617,7 +627,15 @@
     (setq robot-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
     (send robot-state-msg :data (send self :get-val 'robot-state))
     (send robot-state-msg :header :stamp (ros::time-now))
-    (ros::publish robot-state-topic-name robot-state-msg))
+    (ros::publish robot-state-topic-name robot-state-msg)
+    (setq robot-larm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+    (send robot-larm-state-msg :data (concatenate float-vector (send self :get-arm-val :larm :current-end-pos) (send self :get-arm-val :larm :current-end-rpy) (float-vector (send self :get-arm-val :larm :gripper-pos)) (send self :get-arm-val :larm :joint-state)))
+    (send robot-larm-state-msg :header :stamp (ros::time-now))
+    (ros::publish robot-larm-state-topic-name robot-larm-state-msg)
+    (setq robot-rarm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+    (send robot-rarm-state-msg :data (concatenate float-vector (send self :get-arm-val :rarm :current-end-pos) (send self :get-arm-val :rarm :current-end-rpy) (float-vector (send self :get-arm-val :rarm :gripper-pos)) (send self :get-arm-val :rarm :joint-state)))
+    (send robot-rarm-state-msg :header :stamp (ros::time-now))
+    (ros::publish robot-rarm-state-topic-name robot-rarm-state-msg))
   (:publish-robot-action ()
     (setq robot-action-msg (instance eus_imitation::Float32MultiArrayStamped :init))
     (send robot-action-msg :data (send self :get-val 'robot-action))
@@ -670,32 +688,54 @@
                   (send self :get-target-coords :larm :pos-scale scale)
                   (send self :get-target-coords :rarm :pos-scale scale)
                   (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords)))
+                  ;; (send self :inverse-kinematics :arms (list (make-coords
+                  ;;                                             :pos (send self :get-arm-val :larm :target-end-pos)
+                  ;;                                             :rpy (float-vector -pi/2 0 pi/2)
+                  ;;                                             )
+                  ;;                                            (make-coords
+                  ;;                                             :pos (send self :get-arm-val :rarm :target-end-pos)
+                  ;;                                             :rpy (float-vector pi/2 pi/2 -pi/2)
+                  ;;                                             )))
+
                   ;; (send self :update-robot-action)
                   ;; (send self :publish-robot-action)
                   )
                 (progn ;; when one arm is enabled
                   (send self :get-target-coords control-arm :pos-scale scale)
-                  ;; (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
-                  (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (send self :get-arm-val :rarm :target-end-rpy)))
+                  ;; (if (eq control-arm :larm)
+                  ;;     (send self :inverse-kinematics :larm (make-coords
+                  ;;                                           :pos (send self :get-arm-val :larm :target-end-pos)
+                  ;;                                           :rpy (float-vector -pi/2 0 pi/2)
+                  ;;                                           )
+                  ;;          )
+                  ;;     (send self :inverse-kinematics :rarm (make-coords
+                  ;;                                           :pos (send self :get-arm-val :rarm :target-end-pos)
+                  ;;                                           :rpy (float-vector pi/2 pi/2 -pi/2)
+                  ;;                                           ))
+                  ;;     )
+
+                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
+                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
+                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
                   ;; (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (send self :get-arm-val :rarm :target-end-rpy)))
-                  (send self :inverse-kinematics control-arm rarm-target-end-effector-coords)
+                  (send self :inverse-kinematics control-arm target-end-effector-coords)
                   (send self :update-robot-action)
                   (send self :publish-robot-action)
                   ))
           (send self :angle-command-vector control-arm :torso nil)
-          ;; (if (> (send self :get-arm-val :larm :grasp) 0.5)
-          ;;     (send self :start-grasp :larm :wait nil)
-          ;;     (send self :stop-grasp :larm :wait nil))
-          ;; (if (> (send self :get-arm-val :rarm :grasp) 0.5)
-          ;;     (send self :start-grasp :rarm :wait nil)
-          ;;     (send self :stop-grasp :rarm :wait nil))
-
           (if (> (send self :get-arm-val :larm :grasp) 0.5)
-              (send self :move-gripper :larm -0.05 :delta t :wait nil)
-              (send self :move-gripper :larm 0.05 :delta t :wait nil))
+              (send self :start-grasp :larm :wait nil)
+              (send self :stop-grasp :larm :wait nil))
           (if (> (send self :get-arm-val :rarm :grasp) 0.5)
-              (send self :move-gripper :rarm -0.05 :delta t :wait nil)
-              (send self :move-gripper :rarm 0.05 :delta t :wait nil))
+              (send self :start-grasp :rarm :wait nil)
+              (send self :stop-grasp :rarm :wait nil))
+
+          ;; (if (> (send self :get-arm-val :larm :grasp) 0.5)
+          ;;     (send self :move-gripper :larm -0.05 :delta t :wait nil)
+          ;;     (send self :move-gripper :larm 0.05 :delta t :wait nil))
+          ;; (if (> (send self :get-arm-val :rarm :grasp) 0.5)
+          ;;     (send self :move-gripper :rarm -0.05 :delta t :wait nil)
+          ;;     (send self :move-gripper :rarm 0.05 :delta t :wait nil))
           )
         (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
           (send self :parse-robot-action))))

@@ -48,9 +48,12 @@ class RosbagRecorderNode(object):
 
         # just for record
         self.record_topics.append("/joint_states")
+        self.record_topics.append("/eus_imitation/l_arm_state")
+        self.record_topics.append("/eus_imitation/r_arm_state")
         self.record_topics.append("/tf")
-        # self.record_topics.append("/kinect_head/depth_registered/image_rect/compressedDepth")
-        self.record_topics.append("/kinect_head/depth_registered/half/points")
+        # self.record_topics.append("/kinect_head/depth_registered/image_raw/compressedDepth")
+        self.record_topics.append("/kinect_head/depth_registered/image_raw/compressed")
+        # self.record_topics.append("/kinect_head/depth_registered/half/points")
         self.record_topics.append("/eus_imitation/all_robot_state")
         self.record_topics = list(set(self.record_topics))
 
