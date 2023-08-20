@@ -87,6 +87,11 @@ def main(args):
     print("Observation and Action keys : {}".format(keys))
     print("Subscribing topics : {}".format(topic_names))
 
+    action_max = None
+    action_min = None
+    state_max = None
+    state_min = None
+
     # define callback
     def callback(*msgs):
         data_buffer = dict()
@@ -116,6 +121,10 @@ def main(args):
                     data = tunable(data)
             else:
                 data = np.array(msg.data).astype(np.float32)
+                # concat rpy angle [pi/2, pi/2 -pi/2] to data
+                data = np.concatenate([data, np.array([np.pi/2, np.pi/2, -np.pi/2])]).astype(np.float32)
+                # # reorder data from [x,y,z,gripper,r,p,y] to [x,y,z,r,p,y,gripper]
+                data = np.concatenate([data[:3], data[4:], data[3:4]]).astype(np.float32)
             data_buffer[topics_to_keys[topic_name]] = data
         episode_buffer.append(data_buffer)
 
@@ -136,6 +145,66 @@ def main(args):
             subscriber = subscriber_dict.get(topic)
             if subscriber:
                 subscriber.signalMessage(msg)
+
+
+        # episode_buffer is list of dict containing keys: image, state, action
+        # action is target end effector pos and rpy + gripper command
+        # state is current end effector pos and rpy + gripper pos
+        # we need delta of action and state as action
+        # and concatenate terminal action, which is 1 only at the last action
+
+        # convert action to delta
+        # for i in range(len(episode_buffer)):
+        #     # add terminal action flag
+        #     if i != len(episode_buffer) - 1:
+        #         episode_buffer[i]["action"] = np.concatenate([episode_buffer[i]["action"], np.array([0])])
+        #     else:
+        #         episode_buffer[i]["action"] = np.concatenate([episode_buffer[i]["action"], np.array([1])])
+        #     # convert action to delta
+        #     episode_buffer[i]["action"][0:3] = episode_buffer[i]["action"][0:3] - episode_buffer[i]["state"][0:3] # delta xyz
+        #     episode_buffer[i]["action"][3:6] = episode_buffer[i]["action"][3:6] - episode_buffer[i]["state"][3:6] # delta rpy
+        #
+        for i in range(len(episode_buffer)):
+            # add terminal action flag
+            if i != len(episode_buffer) - 1:
+                episode_buffer[i]["action"] = np.concatenate([episode_buffer[i]["action"], np.array([0])])
+            else:
+                episode_buffer[i]["action"] = np.concatenate([episode_buffer[i]["action"], np.array([1])])
+
+
+        # print("Episode length: {}".format(len(episode_buffer)))
+        # print("Episode action: {}".format(episode_buffer[0]["action"]))
+        # print("Episode state: {}".format(episode_buffer[0]["state"]))
+
+        # input('Press Enter to continue...')
+
+
+        # save max and min of action and state over all episodes, action and state is vector and get max and min of each element
+        # action_max, min, state_max, min is vector of max and min of each element
+        if action_max is None:
+            action_max = episode_buffer[0]["action"]
+            action_min = episode_buffer[0]["action"]
+            state_max = episode_buffer[0]["state"]
+            state_min = episode_buffer[0]["state"]
+            for i in range(len(episode_buffer)):
+                action_max = np.maximum(action_max, episode_buffer[i]["action"])
+                action_min = np.minimum(action_min, episode_buffer[i]["action"])
+                state_max = np.maximum(state_max, episode_buffer[i]["state"])
+                state_min = np.minimum(state_min, episode_buffer[i]["state"])
+            # print("action_max: {}".format(action_max))
+            # print("action_min: {}".format(action_min))
+            # print("state_max: {}".format(state_max))
+            # print("state_min: {}".format(state_min))
+        else:
+            for i in range(len(episode_buffer)):
+                action_max = np.maximum(action_max, episode_buffer[i]["action"])
+                action_min = np.minimum(action_min, episode_buffer[i]["action"])
+                state_max = np.maximum(state_max, episode_buffer[i]["state"])
+                state_min = np.minimum(state_min, episode_buffer[i]["state"])
+            # print("action_max: {}".format(action_max))
+            # print("action_min: {}".format(action_min))
+            # print("state_max: {}".format(state_max))
+            # print("state_min: {}".format(state_min))
 
         # save episode buffer to npy
         if bag in train_rosbags:
@@ -159,6 +228,60 @@ def main(args):
                 verbose=False,
             )
 
+    # save max and min of action and state over all episodes to yaml
+    with open(os.path.join("data", "max_min.yaml"), "w") as f:
+        import yaml
+        yaml.dump({
+            "action_max": action_max.tolist(),
+            "action_min": action_min.tolist(),
+            "state_max": state_max.tolist(),
+            "state_min": state_min.tolist(),
+        }, f)
+
+    # reprocess train and val data to normalize action and state
+    # load max and min
+    with open(os.path.join("data", "max_min.yaml"), "r") as f:
+        import yaml
+        max_min = yaml.load(f, Loader=yaml.FullLoader)
+        action_max = np.array(max_min["action_max"]).astype(np.float32)
+        action_min = np.array(max_min["action_min"]).astype(np.float32)
+        state_max = np.array(max_min["state_max"]).astype(np.float32)
+        state_min = np.array(max_min["state_min"]).astype(np.float32)
+
+    # action is [x, y, z, roll, pitch, yaw, gripper command]
+    # state is [x, y, z, roll, pitch, yaw, gripper pos]
+    # apply normalization only for x,y,z and gripper command and pos
+    print("Start reprocessing train rosbags...")
+    os.makedirs("data/processed_train", exist_ok=True)
+    os.makedirs("data/processed_val", exist_ok=True)
+    for i in tqdm(range(train_num)):
+        episode_buffer = np.load("data/train/episode_{}.npy".format(i), allow_pickle=True)
+        for j in range(len(episode_buffer)):
+            # xyz
+            episode_buffer[j]["action"][0:3] = (episode_buffer[j]["action"][0:3] - action_min[0:3]) / (action_max[0:3] - action_min[0:3])
+            episode_buffer[j]["state"][0:3] = (episode_buffer[j]["state"][0:3] - state_min[0:3]) / (state_max[0:3] - state_min[0:3])
+            # gripper
+            episode_buffer[j]["action"][6] = (episode_buffer[j]["action"][6] - action_min[6]) / (action_max[6] - action_min[6])
+            episode_buffer[j]["state"][6] = (episode_buffer[j]["state"][6] - state_min[6]) / (state_max[6] - state_min[6])
+            # to numpy float32
+            episode_buffer[j]["action"] = episode_buffer[j]["action"].astype(np.float32)
+            episode_buffer[j]["state"] = episode_buffer[j]["state"].astype(np.float32)
+        np.save("data/processed_train/episode_{}.npy".format(i), episode_buffer)
+
+    print("Start reprocessing val rosbags...")
+    for i in tqdm(range(val_num)):
+        episode_buffer = np.load("data/val/episode_{}.npy".format(i), allow_pickle=True)
+        for j in range(len(episode_buffer)):
+            # xyz
+            episode_buffer[j]["action"][0:3] = (episode_buffer[j]["action"][0:3] - action_min[0:3]) / (action_max[0:3] - action_min[0:3])
+            episode_buffer[j]["state"][0:3] = (episode_buffer[j]["state"][0:3] - state_min[0:3]) / (state_max[0:3] - state_min[0:3])
+            # gripper
+            episode_buffer[j]["action"][6] = (episode_buffer[j]["action"][6] - action_min[6]) / (action_max[6] - action_min[6])
+            episode_buffer[j]["state"][6] = (episode_buffer[j]["state"][6] - state_min[6]) / (state_max[6] - state_min[6])
+            # to numpy float32
+            episode_buffer[j]["action"] = episode_buffer[j]["action"].astype(np.float32)
+            episode_buffer[j]["state"] = episode_buffer[j]["state"].astype(np.float32)
+        np.save("data/processed_val/episode_{}.npy".format(i), episode_buffer)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Synchronize messages from a rosbag.')
