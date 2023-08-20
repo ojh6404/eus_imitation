@@ -2,6 +2,7 @@
 
 import argparse
 import random
+import yaml
 from tqdm import tqdm
 import os
 import re
@@ -109,20 +110,28 @@ def main(args):
                     tunable.start_tuning(data)
                     pprint.pprint(tunable.export_dict())
                     tunable.dump_yaml(
-                        os.path.join("data", "image_filter.yaml")
+                        os.path.join(
+                            args.project_name, "data", "image_filter.yaml"
+                        )
                     )
                     exit(0)
                 else:
                     tunable = HSVBlurCropResolFilter.from_yaml(
                         os.path.join(
-                            "data", "image_filter.yaml"
+                            args.project_name, "data", "image_filter.yaml"
                         )
                     )
                     data = tunable(data)
             else:
                 data = np.array(msg.data).astype(np.float32)
+                # data is x, y, z, gripper_pos, gripper_pos is 0.0 to 0.08
+                # convert gripper_pos to 0, 1
+                if topic_name == "/eus_imitation/robot_action":
+                    data[3] = 0.0 if data[3] > 0.085 else 1.0
+
                 # concat rpy angle [pi/2, pi/2 -pi/2] to data
                 data = np.concatenate([data, np.array([np.pi/2, np.pi/2, -np.pi/2])]).astype(np.float32)
+
                 # # reorder data from [x,y,z,gripper,r,p,y] to [x,y,z,r,p,y,gripper]
                 data = np.concatenate([data[:3], data[4:], data[3:4]]).astype(np.float32)
             data_buffer[topics_to_keys[topic_name]] = data
@@ -133,9 +142,9 @@ def main(args):
     # process rosbags
     train_num = 0
     val_num = 0
-    os.makedirs("data", exist_ok=True)
-    os.makedirs("data/train", exist_ok=True)
-    os.makedirs("data/val", exist_ok=True)
+    os.makedirs(os.path.join(args.project_name, "data"), exist_ok=True)
+    os.makedirs(os.path.join(args.project_name, "data", "train"), exist_ok=True)
+    os.makedirs(os.path.join(args.project_name, "data", "val"), exist_ok=True)
     print("Start processing train rosbags...")
     for i, bag in enumerate(tqdm(rosbags)):
         bag_reader = rosbag.Bag(bag, skip_index=True)
@@ -164,12 +173,12 @@ def main(args):
         #     episode_buffer[i]["action"][0:3] = episode_buffer[i]["action"][0:3] - episode_buffer[i]["state"][0:3] # delta xyz
         #     episode_buffer[i]["action"][3:6] = episode_buffer[i]["action"][3:6] - episode_buffer[i]["state"][3:6] # delta rpy
         #
-        for i in range(len(episode_buffer)):
+        for j in range(len(episode_buffer)):
             # add terminal action flag
-            if i != len(episode_buffer) - 1:
-                episode_buffer[i]["action"] = np.concatenate([episode_buffer[i]["action"], np.array([0])])
+            if j != len(episode_buffer) - 1:
+                episode_buffer[j]["action"] = np.concatenate([episode_buffer[j]["action"], np.array([0])]).astype(np.float32)
             else:
-                episode_buffer[i]["action"] = np.concatenate([episode_buffer[i]["action"], np.array([1])])
+                episode_buffer[j]["action"] = np.concatenate([episode_buffer[j]["action"], np.array([1])]).astype(np.float32)
 
 
         # print("Episode length: {}".format(len(episode_buffer)))
@@ -186,21 +195,21 @@ def main(args):
             action_min = episode_buffer[0]["action"]
             state_max = episode_buffer[0]["state"]
             state_min = episode_buffer[0]["state"]
-            for i in range(len(episode_buffer)):
-                action_max = np.maximum(action_max, episode_buffer[i]["action"])
-                action_min = np.minimum(action_min, episode_buffer[i]["action"])
-                state_max = np.maximum(state_max, episode_buffer[i]["state"])
-                state_min = np.minimum(state_min, episode_buffer[i]["state"])
+            for k in range(len(episode_buffer)):
+                action_max = np.maximum(action_max, episode_buffer[k]["action"])
+                action_min = np.minimum(action_min, episode_buffer[k]["action"])
+                state_max = np.maximum(state_max, episode_buffer[k]["state"])
+                state_min = np.minimum(state_min, episode_buffer[k]["state"])
             # print("action_max: {}".format(action_max))
             # print("action_min: {}".format(action_min))
             # print("state_max: {}".format(state_max))
             # print("state_min: {}".format(state_min))
         else:
-            for i in range(len(episode_buffer)):
-                action_max = np.maximum(action_max, episode_buffer[i]["action"])
-                action_min = np.minimum(action_min, episode_buffer[i]["action"])
-                state_max = np.maximum(state_max, episode_buffer[i]["state"])
-                state_min = np.minimum(state_min, episode_buffer[i]["state"])
+            for k in range(len(episode_buffer)):
+                action_max = np.maximum(action_max, episode_buffer[k]["action"])
+                action_min = np.minimum(action_min, episode_buffer[k]["action"])
+                state_max = np.maximum(state_max, episode_buffer[k]["state"])
+                state_min = np.minimum(state_min, episode_buffer[k]["state"])
             # print("action_max: {}".format(action_max))
             # print("action_min: {}".format(action_min))
             # print("state_max: {}".format(state_max))
@@ -208,29 +217,29 @@ def main(args):
 
         # save episode buffer to npy
         if bag in train_rosbags:
-            np.save("data/train/episode_{}.npy".format(train_num), episode_buffer)
+            np.save(os.path.join(args.project_name, "data", "train", "episode_{}.npy".format(train_num)), episode_buffer)
             train_num += 1
         elif bag in val_rosbags:
-            np.save("data/val/episode_{}.npy".format(val_num), episode_buffer)
+            np.save(os.path.join(args.project_name, "data", "val", "episode_{}.npy".format(val_num)), episode_buffer)
             val_num += 1
 
 
-        if i % 1 == 0 and args.gif:
-            os.makedirs("data/gif", exist_ok=True)
+        if i % 5 == 0 and args.gif:
+            os.makedirs(os.path.join(args.project_name, "data", "gif"), exist_ok=True)
+            # os.makedirs("data/gif", exist_ok=True)
             # episode_buffer is list of dict
             test_images = []
             for data_buffer in episode_buffer:
                 test_images.append(data_buffer["image"])
             clip = ImageSequenceClip(test_images, fps=10)
             clip.write_gif(
-                os.path.join("data", "gif", "episode_{}.gif".format(i)),
+                os.path.join(args.project_name, "data", "gif", "episode_{}.gif".format(i)),
                 fps=10,
                 verbose=False,
             )
 
     # save max and min of action and state over all episodes to yaml
-    with open(os.path.join("data", "max_min.yaml"), "w") as f:
-        import yaml
+    with open(os.path.join(args.project_name, "data", "max_min.yaml"), "w") as f:
         yaml.dump({
             "action_max": action_max.tolist(),
             "action_min": action_min.tolist(),
@@ -238,56 +247,58 @@ def main(args):
             "state_min": state_min.tolist(),
         }, f)
 
-    # reprocess train and val data to normalize action and state
-    # load max and min
-    with open(os.path.join("data", "max_min.yaml"), "r") as f:
-        import yaml
-        max_min = yaml.load(f, Loader=yaml.FullLoader)
-        action_max = np.array(max_min["action_max"]).astype(np.float32)
-        action_min = np.array(max_min["action_min"]).astype(np.float32)
-        state_max = np.array(max_min["state_max"]).astype(np.float32)
-        state_min = np.array(max_min["state_min"]).astype(np.float32)
+    if args.normalize:
+        # reprocess train and val data to normalize action and state
+        # load max and min
+        with open(os.path.join(args.project_name, "data", "max_min.yaml"), "r") as f:
+            max_min = yaml.load(f, Loader=yaml.FullLoader)
+            action_max = np.array(max_min["action_max"]).astype(np.float32)
+            action_min = np.array(max_min["action_min"]).astype(np.float32)
+            state_max = np.array(max_min["state_max"]).astype(np.float32)
+            state_min = np.array(max_min["state_min"]).astype(np.float32)
 
-    # action is [x, y, z, roll, pitch, yaw, gripper command]
-    # state is [x, y, z, roll, pitch, yaw, gripper pos]
-    # apply normalization only for x,y,z and gripper command and pos
-    print("Start reprocessing train rosbags...")
-    os.makedirs("data/processed_train", exist_ok=True)
-    os.makedirs("data/processed_val", exist_ok=True)
-    for i in tqdm(range(train_num)):
-        episode_buffer = np.load("data/train/episode_{}.npy".format(i), allow_pickle=True)
-        for j in range(len(episode_buffer)):
-            # xyz
-            episode_buffer[j]["action"][0:3] = (episode_buffer[j]["action"][0:3] - action_min[0:3]) / (action_max[0:3] - action_min[0:3])
-            episode_buffer[j]["state"][0:3] = (episode_buffer[j]["state"][0:3] - state_min[0:3]) / (state_max[0:3] - state_min[0:3])
-            # gripper
-            episode_buffer[j]["action"][6] = (episode_buffer[j]["action"][6] - action_min[6]) / (action_max[6] - action_min[6])
-            episode_buffer[j]["state"][6] = (episode_buffer[j]["state"][6] - state_min[6]) / (state_max[6] - state_min[6])
-            # to numpy float32
-            episode_buffer[j]["action"] = episode_buffer[j]["action"].astype(np.float32)
-            episode_buffer[j]["state"] = episode_buffer[j]["state"].astype(np.float32)
-        np.save("data/processed_train/episode_{}.npy".format(i), episode_buffer)
+        # action is [x, y, z, roll, pitch, yaw, gripper command]
+        # state is [x, y, z, roll, pitch, yaw, gripper pos]
+        # apply normalization only for x,y,z and gripper command and pos
+        print("Start reprocessing train rosbags...")
+        os.makedirs(os.path.join(args.project_name, "data", "processed_train"), exist_ok=True)
+        os.makedirs(os.path.join(args.project_name, "data", "processed_val"), exist_ok=True)
+        for i in tqdm(range(train_num)):
+            episode_buffer = np.load(os.path.join(args.project_name, "data", "train", "episode_{}.npy".format(i)), allow_pickle=True)
+            for j in range(len(episode_buffer)):
+                # xyz
+                episode_buffer[j]["action"][0:3] = (episode_buffer[j]["action"][0:3] - action_min[0:3]) / (action_max[0:3] - action_min[0:3])
+                episode_buffer[j]["state"][0:3] = (episode_buffer[j]["state"][0:3] - state_min[0:3]) / (state_max[0:3] - state_min[0:3])
+                # gripper
+                episode_buffer[j]["action"][6] = (episode_buffer[j]["action"][6] - action_min[6]) / (action_max[6] - action_min[6])
+                episode_buffer[j]["state"][6] = (episode_buffer[j]["state"][6] - state_min[6]) / (state_max[6] - state_min[6])
+                # to numpy float32
+                episode_buffer[j]["action"] = episode_buffer[j]["action"].astype(np.float32)
+                episode_buffer[j]["state"] = episode_buffer[j]["state"].astype(np.float32)
+            np.save(os.path.join(args.project_name, "data", "processed_train", "episode_{}.npy".format(i)), episode_buffer)
 
-    print("Start reprocessing val rosbags...")
-    for i in tqdm(range(val_num)):
-        episode_buffer = np.load("data/val/episode_{}.npy".format(i), allow_pickle=True)
-        for j in range(len(episode_buffer)):
-            # xyz
-            episode_buffer[j]["action"][0:3] = (episode_buffer[j]["action"][0:3] - action_min[0:3]) / (action_max[0:3] - action_min[0:3])
-            episode_buffer[j]["state"][0:3] = (episode_buffer[j]["state"][0:3] - state_min[0:3]) / (state_max[0:3] - state_min[0:3])
-            # gripper
-            episode_buffer[j]["action"][6] = (episode_buffer[j]["action"][6] - action_min[6]) / (action_max[6] - action_min[6])
-            episode_buffer[j]["state"][6] = (episode_buffer[j]["state"][6] - state_min[6]) / (state_max[6] - state_min[6])
-            # to numpy float32
-            episode_buffer[j]["action"] = episode_buffer[j]["action"].astype(np.float32)
-            episode_buffer[j]["state"] = episode_buffer[j]["state"].astype(np.float32)
-        np.save("data/processed_val/episode_{}.npy".format(i), episode_buffer)
+        print("Start reprocessing val rosbags...")
+        for i in tqdm(range(val_num)):
+            episode_buffer = np.load(os.path.join(args.project_name, "data", "val", "episode_{}.npy".format(i)), allow_pickle=True)
+            for j in range(len(episode_buffer)):
+                # xyz
+                episode_buffer[j]["action"][0:3] = (episode_buffer[j]["action"][0:3] - action_min[0:3]) / (action_max[0:3] - action_min[0:3])
+                episode_buffer[j]["state"][0:3] = (episode_buffer[j]["state"][0:3] - state_min[0:3]) / (state_max[0:3] - state_min[0:3])
+                # gripper
+                episode_buffer[j]["action"][6] = (episode_buffer[j]["action"][6] - action_min[6]) / (action_max[6] - action_min[6])
+                episode_buffer[j]["state"][6] = (episode_buffer[j]["state"][6] - state_min[6]) / (state_max[6] - state_min[6])
+                # to numpy float32
+                episode_buffer[j]["action"] = episode_buffer[j]["action"].astype(np.float32)
+                episode_buffer[j]["state"] = episode_buffer[j]["state"].astype(np.float32)
+            np.save(os.path.join(args.project_name, "data", "processed_val", "episode_{}.npy".format(i)), episode_buffer)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Synchronize messages from a rosbag.')
+    parser.add_argument('-pn', "--project_name", type=str, help='The name of project.')
     parser.add_argument('-d', "--rosbag_dir", type=str, help='The name of the input bag file directory.')
     parser.add_argument('-r', "--ratio", type=float, help="train/val ratio. e.g. 0.8", default=0.8)
     parser.add_argument("-t", "--image_tune", action="store_true", default=False)
+    parser.add_argument("-n", "--normalize", action="store_true", default=False)
     parser.add_argument("--gif", action="store_true", help="save gif")
     args = parser.parse_args()
     main(args)
