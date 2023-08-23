@@ -126,14 +126,14 @@ def main(args):
                 data = np.array(msg.data).astype(np.float32)
                 # data is x, y, z, gripper_pos, gripper_pos is 0.0 to 0.08
                 # convert gripper_pos to 0, 1
-                if topic_name == "/eus_imitation/robot_action":
-                    data[3] = 0.0 if data[3] > 0.085 else 1.0
+                # if topic_name == "/eus_imitation/robot_action":
+                    # data[3] = 0.0 if data[3] > 0.085 else 1.0
 
                 # concat rpy angle [pi/2, pi/2 -pi/2] to data
-                data = np.concatenate([data, np.array([np.pi/2, np.pi/2, -np.pi/2])]).astype(np.float32)
+                # data = np.concatenate([data, np.array([np.pi/2, np.pi/2, -np.pi/2])]).astype(np.float32)
 
                 # # reorder data from [x,y,z,gripper,r,p,y] to [x,y,z,r,p,y,gripper]
-                data = np.concatenate([data[:3], data[4:], data[3:4]]).astype(np.float32)
+                # data = np.concatenate([data[:3], data[4:], data[3:4]]).astype(np.float32)
             data_buffer[topics_to_keys[topic_name]] = data
         episode_buffer.append(data_buffer)
 
