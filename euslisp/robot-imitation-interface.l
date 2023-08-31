@@ -13,6 +13,16 @@
 (ros::load-ros-manifest "std_srvs")
 
 
+(load "package://informatized_body_core/euslisp/informatized-body-core.l")
+(ros::roseus-add-msgs "informatized_body_msgs")
+(ros::roseus-add-srvs "std_srvs")
+(initialize-ibm-core "eus_imitation")
+(defun data-collection-start (&key (filename nil))
+  (data-collection-start-base "eus_imitation" :filename filename))
+
+(defun data-collection-stop ()
+  (data-collection-stop-base "eus_imitation"))
+
 (defclass robot-imitation-interface
   :super propertied-object
   :slots (
@@ -575,16 +585,18 @@
           (progn
             (if record-p
               (progn
-              ;; (data-collection-stop)
-              ;; (unix:usleep (* 1000 100))
+                (data-collection-stop)
+                (unix:usleep (* 1000 100))
+
                 (ros::ros-info "recording stop")
                 (ros::wait-for-service record-trigger-service-name 1)
                 (setq req (instance std_srvs::TriggerRequest :init))
                 (setq res (ros::service-call record-trigger-service-name req))
                 (send self :set-val 'recording nil))
               (progn
-              ;; (unix:usleep (* 1000 1000))
-              ;; (data-collection-start :filename nil)
+                (unix:usleep (* 1000 1000))
+                (data-collection-start :filename nil)
+
                 (ros::ros-info "recording start")
                 (ros::wait-for-service record-trigger-service-name 1)
                 (setq req (instance std_srvs::TriggerRequest :init))
@@ -714,9 +726,10 @@
                   ;;                                           ))
                   ;;     )
 
-                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
                   ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
-                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+
+                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
                   ;; (setq rarm-target-end-effector-coords (make-coords :pos (send self :get-arm-val :rarm :target-end-pos) :rpy (send self :get-arm-val :rarm :target-end-rpy)))
                   (send self :inverse-kinematics control-arm target-end-effector-coords)
                   (send self :update-robot-action)
