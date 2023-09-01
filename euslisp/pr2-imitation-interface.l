@@ -191,13 +191,32 @@
                   (float-vector (send self :get-arm-val :rarm :gripper-pos))
                   ))) ;; (3 + 3 + 1) * 2 = 14
 
+  ;; (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
+  ;;     (let (action rarm-target-end-effector-coords rarm-target-end-effector-pos rarm-gripper-command)
+  ;;       (setq action (send self :get-val 'robot-action))
+  ;;       ;; parsing action
+  ;;       (setq rarm-target-end-effector-pos (subseq action 0 3))
+  ;;       (setq rarm-target-end-effector-rpy (subseq action 3 6))
+  ;;       (setq rarm-gripper-command (elt action 6))
+  ;;       ;; (setq target-end-effector-coords (make-coords :pos larm-target-end-effector-pos :rpy larm-target-end-effector-rpy))
+  ;;       ;; (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy (v+ (coerce rarm-target-end-effector-rpy float-vector) (coerce (send self :get-arm-val :rarm :current-end-rpy) float-vector))))
+  ;;       (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy rarm-target-end-effector-rpy))
+  ;;       ;; execute action
+  ;;       (send self :inverse-kinematics :rarm target-end-effector-coords)
+  ;;       (send self :angle-command-vector :rarm :torso nil)
+  ;;       ;; (send self :move-gripper :rarm larm-gripper-pos :delta nil :wait nil)
+  ;;       (if (> rarm-gripper-command 0.01)
+  ;;           (send self :start-grasp :rarm :wait nil)
+  ;;           (send self :stop-grasp :rarm :wait nil))
+  ;;       ))
+
   (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
       (let (action rarm-target-end-effector-coords rarm-target-end-effector-pos rarm-gripper-command)
         (setq action (send self :get-val 'robot-action))
         ;; parsing action
         (setq rarm-target-end-effector-pos (subseq action 0 3))
-        (setq rarm-target-end-effector-rpy (subseq action 3 6))
-        (setq rarm-gripper-command (elt action 6))
+        (setq rarm-target-end-effector-rpy (float-vector pi/2 pi/2 -pi/2))
+        (setq rarm-gripper-command (elt action 3))
         ;; (setq target-end-effector-coords (make-coords :pos larm-target-end-effector-pos :rpy larm-target-end-effector-rpy))
         ;; (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy (v+ (coerce rarm-target-end-effector-rpy float-vector) (coerce (send self :get-arm-val :rarm :current-end-rpy) float-vector))))
         (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy rarm-target-end-effector-rpy))
