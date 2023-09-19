@@ -1,237 +1,83 @@
 #!/usr/bin/env roseus
 (require :pr2-interface "package://pr2eus/pr2-interface.l")
-(require :robot-imitation-interface "package://eus_imitation/euslisp/robot-imitation-interface.l")
+(require :robot-vive-interface "package://eus_imitation/euslisp/robot-vive-interface.l")
 
 (defclass pr2-imitation-interface
-  :super robot-imitation-interface
-  :slots (
-          ))
+  :super robot-vive-interface
+  :slots ())
 
 
 (defmethod pr2-imitation-interface
   (:init  (&rest args)
     (send-super* :init args)
-    (send self :set-val 'robot *pr2*) ;; TODO
+    (send self :set-val 'robot *pr2*)
 
-   ;; PR2 control settings
+   ;; PR2 IK control settings
     (send self :set-val 'ik-stop-step 10)
     (send self :set-val 'av-tm 800)
     (send self :set-val 'av-scale 5.0)
     (send self :set-val 'min-time 0.3)
-    (send self :set-val 'scale 1.5)
+    (send self :set-val 'scale 1.5))
 
+  (:move-robot () ;; move real robot
+      (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
+        (progn ;; when data collection is enabled and arm control is enabled
+          (if (eq control-arm :arms)
+                (progn ;; when both arms are enabled
+                  (send self :get-target-coords :larm :pos-scale scale)
+                  (send self :get-target-coords :rarm :pos-scale scale)
+                  (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords)))
+                  )
+                (progn ;; when one arm is enabled
+                  (send self :get-target-coords control-arm :pos-scale scale)
+                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
+                  (send self :inverse-kinematics control-arm target-end-effector-coords)
+                  (send self :update-robot-action)
+                  (send self :publish-robot-action)
+                  ))
+          (send self :angle-command-vector control-arm :torso nil)
+          (if (> (send self :get-arm-val :larm :grasp) 0.5)
+              (send self :start-grasp :larm :wait nil)
+              (send self :stop-grasp :larm :wait nil))
+          (if (> (send self :get-arm-val :rarm :grasp) 0.5)
+              (send self :start-grasp :rarm :wait nil)
+              (send self :stop-grasp :rarm :wait nil))
+          )
+        (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
+          (send self :parse-robot-action)))
+               )
 
-   )
-  (:ros-init ()
-    (send-super :ros-init)
-    (send self :set-arm-val :larm :gripper-status-topic-name
-            "/l_gripper_controller/gripper_action/status")
-    (send self :set-arm-val :rarm :gripper-status-topic-name
-            "/r_gripper_controller/gripper_action/status")
-
-    )
-
-
-  ;; (:update-robot-action () ;; when data collection
-  ;;       (send self :set-val 'robot-action
-  ;;             (concatenate float-vector
-  ;;                 (send self :get-arm-val :larm :target-end-pos)
-  ;;                 (send self :get-arm-val :larm :target-end-rpy)
-  ;;                 (float-vector (send self :get-arm-val :larm :grasp))
-  ;;                 (send self :get-arm-val :rarm :target-end-pos)
-  ;;                 (send self :get-arm-val :rarm :target-end-rpy)
-  ;;                 (float-vector (send self :get-arm-val :rarm :grasp))))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:update-robot-state ()
-  ;;       (send self :set-val 'robot-state ;; you can define agent's state, proprioception
-  ;;             (concatenate float-vector ;; concatenate all vectors
-  ;;                 (send self :get-arm-val :larm :current-end-pos)
-  ;;                 (send self :get-arm-val :larm :current-end-rpy)
-  ;;                 (float-vector (send self :get-arm-val :larm :gripper-pos))
-  ;;                 (send self :get-arm-val :rarm :current-end-pos)
-  ;;                 (send self :get-arm-val :rarm :current-end-rpy)
-  ;;                 (float-vector (send self :get-arm-val :rarm :gripper-pos))))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
-  ;;     (let (action larm-target-end-effector-coords rarm-target-end-effector-coords
-  ;;           larm-target-end-effector-pos rarm-target-end-effector-pos
-  ;;           larm-target-end-effector-rpy rarm-target-end-effector-rpy
-  ;;           larm-gripper-command rarm-gripper-command)
-  ;;       (setq action (send self :get-val 'robot-action))
-  ;;       (setq larm-target-end-effector-pos (subseq action 0 3))
-  ;;       (setq larm-target-end-effector-rpy (subseq action 3 6))
-  ;;       (setq larm-gripper-command (elt action 6))
-  ;;       (setq larm-target-end-effector-coords (make-coords :pos larm-target-end-effector-pos :rpy larm-target-end-effector-rpy))
-  ;;       (setq rarm-target-end-effector-pos (subseq action 7 10))
-  ;;       (setq rarm-target-end-effector-rpy (subseq action 10 13))
-  ;;       (setq rarm-gripper-command (elt action 13))
-  ;;       (setq rarm-target-end-effector-coords (make-coords :pos rarm-target-end-effector-pos :rpy rarm-target-end-effector-rpy))
-  ;;       (send self :inverse-kinematics :arms (list larm-target-end-effector-coords rarm-target-end-effector-coords))
-  ;;       (send self :angle-command-vector :arms :torso nil)
-  ;;       (if (> larm-gripper-command 0.5)
-  ;;           (send self :start-grasp :larm :wait nil)
-  ;;           (send self :stop-grasp :larm :wait nil))
-  ;;       (if (> rarm-gripper-command 0.5)
-  ;;           (send self :start-grasp :rarm :wait nil)
-  ;;           (send self :stop-grasp :rarm :wait nil))))
-
-
-
-
-
-  ;; (:publish-all-robot-state ()
-  ;;   (let (all-robot-state)
-  ;;     (setq joint-state)
-
-  ;;     )
-
-  ;;                           )
-
-  ;; ;; pick and place settings
-  ;; ;; for single arm, fixed rotation
-  ;; (:update-robot-action () ;; when data collection
-  ;;       (send self :set-val 'robot-action
-  ;;             (concatenate float-vector
-  ;;                 (send self :get-arm-val :rarm :target-end-pos)
-  ;;                 (float-vector (send self :get-arm-val :rarm :grasp))
-  ;;                 ;; (float-vector (send self :get-arm-val :rarm :target-gripper-pos))
-  ;;                 ))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:update-robot-state ()
-  ;;       (send self :set-val 'robot-state ;; you can define agent's state, proprioception
-  ;;             (concatenate float-vector ;; concatenate all vectors
-  ;;                 (send self :get-arm-val :rarm :current-end-pos)
-  ;;                 (float-vector (send self :get-arm-val :rarm :gripper-pos))))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
-  ;;     (let (action rarm-target-end-effector-coords rarm-target-end-effector-pos rarm-gripper-command)
-  ;;       (setq action (send self :get-val 'robot-action))
-  ;;       ;; parsing action
-  ;;       (setq rarm-target-end-effector-pos (subseq action 0 3))
-  ;;       (setq rarm-target-end-effector-rpy (float-vector pi/2 pi/2 -pi/2))
-  ;;       (setq rarm-gripper-pos (elt action 3))
-  ;;       (setq rarm-target-end-effector-coords (make-coords :pos rarm-target-end-effector-pos :rpy rarm-target-end-effector-rpy))
-  ;;       ;; execute action
-  ;;       (send self :inverse-kinematics :rarm rarm-target-end-effector-coords)
-  ;;       (send self :angle-command-vector :rarm :torso nil)
-  ;;       (send self :move-gripper :rarm rarm-gripper-pos :delta nil :wait nil)
-  ;;       ;; (if (> rarm-gripper-command 0.01)
-  ;;       ;;     (send self :start-grasp :rarm :wait nil)
-  ;;       ;;     (send self :stop-grasp :rarm :wait nil))
-  ;;       ))
-
-
-
-  ;; flipping settings
-  ;; for single arm, not fixed rotation
-  ;; (:update-robot-action () ;; when data collection
-  ;;       (send self :set-val 'robot-action
-  ;;             (concatenate float-vector
-  ;;                 (send self :get-arm-val :rarm :target-end-pos)
-  ;;                 (send self :get-arm-val :rarm :target-end-rpy)
-  ;;                 ;; (float-vector (send self :get-arm-val :rarm :grasp))
-  ;;                 (float-vector (send self :get-arm-val :rarm :target-gripper-pos))
-  ;;                 ))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:update-robot-state ()
-  ;;       (send self :set-val 'robot-state ;; you can define agent's state, proprioception
-  ;;             (concatenate float-vector ;; concatenate all vectors
-  ;;                 (send self :get-arm-val :rarm :current-end-pos)
-  ;;                 (send self :get-arm-val :rarm :current-end-rpy)
-  ;;                 (float-vector (send self :get-arm-val :rarm :gripper-pos))
-  ;;                 ))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:update-all-robot-state ()
-  ;;       (send self :set-val 'all-robot-state ;; you can define agent's state, proprioception
-  ;;             (concatenate float-vector ;; concatenate all vectors
-  ;;                 (send self :get-arm-val :rarm :current-end-pos)
-  ;;                 (send self :get-arm-val :rarm :current-end-rpy)
-  ;;                 (float-vector (send self :get-arm-val :rarm :gripper-pos))
-  ;;                 ))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
-  ;;     (let (action rarm-target-end-effector-coords rarm-target-end-effector-pos rarm-gripper-command)
-  ;;       (setq action (send self :get-val 'robot-action))
-  ;;       ;; parsing action
-  ;;       (setq rarm-target-end-effector-pos (subseq action 0 3))
-  ;;       (setq rarm-target-end-effector-rpy (subseq action 3 6))
-  ;;       (setq rarm-gripper-pos (elt action 6))
-  ;;       (setq rarm-target-end-effector-coords (make-coords :pos rarm-target-end-effector-pos :rpy rarm-target-end-effector-rpy))
-  ;;       ;; execute action
-  ;;       (send self :inverse-kinematics :rarm rarm-target-end-effector-coords)
-  ;;       (send self :angle-command-vector :rarm :torso nil)
-  ;;       (send self :move-gripper :rarm rarm-gripper-pos :delta nil :wait nil)
-  ;;       ;; (if (> rarm-gripper-command 0.01)
-  ;;       ;;     (send self :start-grasp :rarm :wait nil)
-  ;;       ;;     (send self :stop-grasp :rarm :wait nil))
-  ;;       ))
-
-
-  ;; arms settings
   (:update-robot-action () ;; when data collection
         (send self :set-val 'robot-action
               (concatenate float-vector
-                  ;; (send self :get-arm-val :larm :target-end-pos)
-                  ;; (send self :get-arm-val :larm :target-end-rpy)
-                  ;; (float-vector (send self :get-arm-val :larm :grasp))
-                  (v- (send self :get-arm-val :rarm :target-end-pos) (send self :get-arm-val :rarm :current-end-pos))
-                  ;; (v- (coerce (send self :get-arm-val :rarm :target-end-rpy) float-vector) (coerce (send self :get-arm-val :rarm :current-end-rpy) float-vector))
-                  ;; (send self :get-arm-val :rarm :target-end-rpy)
+                  (send self :get-arm-val :rarm :target-end-pos)
+                  (send self :get-arm-val :rarm :target-end-rpy)
                   (float-vector (send self :get-arm-val :rarm :grasp))
-                  ))) ;; (3 + 3 + 1) * 2 = 14
+                  (float-vector (send self :get-arm-val :rarm :grasp)))))
 
   (:update-robot-state ()
         (send self :set-val 'robot-state ;; you can define agent's state, proprioception
               (concatenate float-vector ;; concatenate all vectors
-                  ;; (send self :get-arm-val :larm :current-end-pos)
-                  ;; (send self :get-arm-val :larm :current-end-rpy)
-                  ;; (float-vector (send self :get-arm-val :larm :gripper-pos))
                   (send self :get-arm-val :rarm :current-end-pos)
-                  ;; (send self :get-arm-val :rarm :current-end-rpy)
-                  (float-vector (send self :get-arm-val :rarm :gripper-pos))
-                  ))) ;; (3 + 3 + 1) * 2 = 14
-
-  ;; (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
-  ;;     (let (action rarm-target-end-effector-coords rarm-target-end-effector-pos rarm-gripper-command)
-  ;;       (setq action (send self :get-val 'robot-action))
-  ;;       ;; parsing action
-  ;;       (setq rarm-target-end-effector-pos (subseq action 0 3))
-  ;;       (setq rarm-target-end-effector-rpy (subseq action 3 6))
-  ;;       (setq rarm-gripper-command (elt action 6))
-  ;;       ;; (setq target-end-effector-coords (make-coords :pos larm-target-end-effector-pos :rpy larm-target-end-effector-rpy))
-  ;;       ;; (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy (v+ (coerce rarm-target-end-effector-rpy float-vector) (coerce (send self :get-arm-val :rarm :current-end-rpy) float-vector))))
-  ;;       (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy rarm-target-end-effector-rpy))
-  ;;       ;; execute action
-  ;;       (send self :inverse-kinematics :rarm target-end-effector-coords)
-  ;;       (send self :angle-command-vector :rarm :torso nil)
-  ;;       ;; (send self :move-gripper :rarm larm-gripper-pos :delta nil :wait nil)
-  ;;       (if (> rarm-gripper-command 0.01)
-  ;;           (send self :start-grasp :rarm :wait nil)
-  ;;           (send self :stop-grasp :rarm :wait nil))
-  ;;       ))
+                  (send self :get-arm-val :rarm :current-end-rpy)
+                  (float-vector (send self :get-arm-val :rarm :gripper-pos)))))
 
   (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
       (let (action rarm-target-end-effector-coords rarm-target-end-effector-pos rarm-gripper-command)
         (setq action (send self :get-val 'robot-action))
         ;; parsing action
         (setq rarm-target-end-effector-pos (subseq action 0 3))
-        (setq rarm-target-end-effector-rpy (float-vector pi/2 pi/2 -pi/2))
-        (setq rarm-gripper-command (elt action 3))
-        ;; (setq target-end-effector-coords (make-coords :pos larm-target-end-effector-pos :rpy larm-target-end-effector-rpy))
-        ;; (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy (v+ (coerce rarm-target-end-effector-rpy float-vector) (coerce (send self :get-arm-val :rarm :current-end-rpy) float-vector))))
-        (setq target-end-effector-coords (make-coords :pos (v+ rarm-target-end-effector-pos (send self :get-arm-val :rarm :current-end-pos)) :rpy rarm-target-end-effector-rpy))
+        (setq rarm-target-end-effector-pos (subseq action 3 6))
+        (setq rarm-gripper-command (elt action 6))
+        (setq target-end-effector-coords (make-coords :pos rarm-target-end-effector-pos :rpy rarm-target-end-effector-rpy))
         ;; execute action
         (send self :inverse-kinematics :rarm target-end-effector-coords)
         (send self :angle-command-vector :rarm :torso nil)
-        ;; (send self :move-gripper :rarm larm-gripper-pos :delta nil :wait nil)
         (if (> rarm-gripper-command 0.01)
             (send self :start-grasp :rarm :wait nil)
             (send self :stop-grasp :rarm :wait nil))
         ))
-
-
-
   )
-
 
 (provide :pr2-imitation-interface)
