@@ -21,11 +21,13 @@
 
           ;; define robot action and state (proprioception)
           robot-action ;; action representated as a float vector
-          robot-action-type ;; end-effector pose or joint angle
+          robot-action-type ;; end-effector pose or joint angle TODO
           robot-state ;; state representated as a float vector
-          robot-state-type ;; end-effector pose or joint angle or something else
-          joint-state
-          joint-velocity
+          robot-state-type ;; end-effector pose or joint angle or something else TODO
+          ;; joint-states
+          joint-pos
+          joint-vel
+          joint-efforts
           control-arm
 
 
@@ -35,8 +37,7 @@
           robot-state-topic-name
           robot-larm-state-topic-name
           robot-rarm-state-topic-name
-          robot-joint-state-topic-name
-          robot-joint-velocity-topic-name
+          robot-joint-states-topic-name
           record-trigger-service-name
           remove-trigger-service-name
           larm-gripper-status-topic-name
@@ -89,7 +90,11 @@
           larm-target-end-rpy
           rarm-target-end-rpy
           larm-target-gripper-pos
-          rarm-target-gripper-pos))
+          rarm-target-gripper-pos
+          larm-target-linear-velocity
+          larm-target-angular-velocity
+          rarm-target-linear-velocity
+          rarm-target-angular-velocity))
 
 (defmethod robot-teleop-interface
   (:init  (&key (imitation nil) (device-type nil))
@@ -121,8 +126,7 @@
    (send self :set-val 'robot-state-topic-name "/eus_imitation/robot_state")
    (send self :set-val 'robot-larm-state-topic-name "/eus_imitation/l_arm_state")
    (send self :set-val 'robot-rarm-state-topic-name "/eus_imitation/r_arm_state")
-   (send self :set-val 'robot-joint-state-topic-name "/eus_imitation/joint_state")
-   (send self :set-val 'robot-joint-velocity-topic-name "/eus_imitation/joint_velocity")
+   (send self :set-val 'robot-joint-states-topic-name "/joint_states")
    (send self :set-val 'record-trigger-service-name "/eus_imitation/rosbag_record_trigger")
    (send self :set-val 'remove-trigger-service-name "/eus_imitation/rosbag_remove_trigger")
    (send self :reset)
@@ -137,7 +141,15 @@
     ;; subscribe action topic when imitation
     (if (send self :get-val 'data-collection)
       (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
+    ;; (ros::subscribe robot-joint-states-topic-name
+    ;;                 sensor_msgs::JointState #'send self :joint-states-cb) ;; TODO currently only rarm
     t)
+
+  ;; (:joint-states-cb (msg)
+  ;;   (send self :set-val 'joint-pos (send msg :position))
+  ;;   (send self :set-val 'joint-vel (send msg :velocity))
+  ;;   (send self :set-val 'joint-efforts (send msg :effort)))
+
   (:reset ()
     (send self :reset-arm-val :larm)
     (send self :reset-arm-val :rarm))
@@ -145,8 +157,7 @@
     (send self :set-arm-val arm :enable nil)
     (send self :set-arm-val arm :grasp 0)
     (send self :set-arm-val arm :current-end-coords nil)
-    (send self :set-arm-val arm :gripper-pos nil)
-    (send self :set-arm-val arm :joint-state nil)
+    (send self :set-arm-val arm :gripper-pos 0)
     (send self :set-arm-val arm :target-gripper-pos 0.09)
 
     (send self :set-val 'tracking nil)
@@ -170,8 +181,10 @@
     (send self :load-init-pose)
     (send self :update-robot)
     (send robot-interface :angle-vector init-pose 3000)
-    (send self :stop-grasp :larm :wait t)
-    (send self :stop-grasp :rarm :wait t)
+    (if (send robot :larm)
+        (send self :stop-grasp :larm :wait t))
+    (if (send robot :rarm)
+        (send self :stop-grasp :rarm :wait t))
     (send robot-interface :wait-interpolation))
 
   (:get-arm-controller (arm)
@@ -219,28 +232,36 @@
   (:update-robot-model ()
     (send robot :angle-vector (send robot-interface :state :potentio-vector)))
   (:update-current-end-coords ()
-       (send self :set-arm-val :larm :current-end-coords
-             (send robot :larm :end-coords :copy-worldcoords))
-       (send self :set-arm-val :larm :current-end-pos
-             (send (send self :get-arm-val :larm :current-end-coords) :worldpos))
-       (send self :set-arm-val :larm :current-end-rpy
-             (elt (rpy-angle (send (send self :get-arm-val :larm :current-end-coords) :worldrot)) 0))
-       (send self :set-arm-val :rarm :current-end-coords
-             (send robot :rarm :end-coords :copy-worldcoords))
-       (send self :set-arm-val :rarm :current-end-pos
-             (send (send self :get-arm-val :rarm :current-end-coords) :worldpos))
-       (send self :set-arm-val :rarm :current-end-rpy
-             (elt (rpy-angle (send (send self :get-arm-val :rarm :current-end-coords) :worldrot)) 0)))
+        (if (send robot :larm)
+            (progn
+                (send self :set-arm-val :larm :current-end-coords
+                        (send robot :larm :end-coords :copy-worldcoords))
+                (send self :set-arm-val :larm :current-end-pos
+                        (send (send self :get-arm-val :larm :current-end-coords) :worldpos))
+                (send self :set-arm-val :larm :current-end-rpy
+                        (elt (rpy-angle (send (send self :get-arm-val :larm :current-end-coords) :worldrot)) 0))))
+        (if (send robot :rarm)
+            (progn
+                (send self :set-arm-val :rarm :current-end-coords
+                        (send robot :rarm :end-coords :copy-worldcoords))
+                (send self :set-arm-val :rarm :current-end-pos
+                        (send (send self :get-arm-val :rarm :current-end-coords) :worldpos))
+                (send self :set-arm-val :rarm :current-end-rpy
+                        (elt (rpy-angle (send (send self :get-arm-val :rarm :current-end-coords) :worldrot)) 0)))))
   (:update-current-gripper-pos ()
-       (send self :set-arm-val :larm :gripper-pos
-             (send robot-interface :gripper :larm :position))
-       (send self :set-arm-val :rarm :gripper-pos
-             (send robot-interface :gripper :rarm :position)))
+        (if (send robot :larm)
+            (send self :set-arm-val :larm :gripper-pos
+                    (send robot-interface :gripper :larm :position)))
+        (if (send robot :rarm)
+            (send self :set-arm-val :rarm :gripper-pos
+                    (send robot-interface :gripper :rarm :position))))
   (:update-current-joint-state ()
-       (send self :set-arm-val :larm :joint-state
-             (send robot :larm :angle-vector))
-       (send self :set-arm-val :rarm :joint-state
-             (send robot :rarm :angle-vector)))
+        (if (send robot :larm)
+            (send self :set-arm-val :larm :joint-state
+                    (send robot :larm :angle-vector)))
+        (if (send robot :rarm)
+            (send self :set-arm-val :rarm :joint-state
+                    (send robot :rarm :angle-vector))))
   (:update-robot ()
     (send self :update-robot-model)
     (send self :update-current-end-coords)
@@ -422,12 +443,15 @@
       (if init-button-p
           (progn
             (ros::ros-info "Inititalizing robot...")
+            (print "test")
+            (print arm)
+            (print button)
             (send self :init-pose)
             (send self :reset)
             (send self :update-robot)
             (ros::ros-info "Initiailized")))))
   (:gripper-cb (arm &key (wait nil) (button :trigger))
-    (if (send self :get-arm-val arm button)
+    (if (send self :get-arm-val arm button) ;; NOTE controller-button-p is not used cause it is not toggle
         (send self :set-arm-val arm :grasp 1) ;;  we can set this t or nil but in case of use of this variable as state
         (send self :set-arm-val arm :grasp 0)))
   (:button-cb ()
@@ -437,14 +461,19 @@
     (send robot-state-msg :data (send self :get-val 'robot-state))
     (send robot-state-msg :header :stamp (ros::time-now))
     (ros::publish robot-state-topic-name robot-state-msg)
-    (setq robot-larm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
-    (send robot-larm-state-msg :data (concatenate float-vector (send self :get-arm-val :larm :current-end-pos) (send self :get-arm-val :larm :current-end-rpy) (float-vector (send self :get-arm-val :larm :gripper-pos)) (send self :get-arm-val :larm :joint-state)))
-    (send robot-larm-state-msg :header :stamp (ros::time-now))
-    (ros::publish robot-larm-state-topic-name robot-larm-state-msg)
-    (setq robot-rarm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
-    (send robot-rarm-state-msg :data (concatenate float-vector (send self :get-arm-val :rarm :current-end-pos) (send self :get-arm-val :rarm :current-end-rpy) (float-vector (send self :get-arm-val :rarm :gripper-pos)) (send self :get-arm-val :rarm :joint-state)))
-    (send robot-rarm-state-msg :header :stamp (ros::time-now))
-    (ros::publish robot-rarm-state-topic-name robot-rarm-state-msg))
+    (if (send robot :larm)
+        (progn
+            (setq robot-larm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+            (send robot-larm-state-msg :data (concatenate float-vector (send self :get-arm-val :larm :current-end-pos) (send self :get-arm-val :larm :current-end-rpy) (float-vector (send self :get-arm-val :larm :gripper-pos)) (send self :get-arm-val :larm :joint-state)))
+            (send robot-larm-state-msg :header :stamp (ros::time-now))
+            (ros::publish robot-larm-state-topic-name robot-larm-state-msg)))
+    (if (send robot :rarm)
+        (progn
+            (setq robot-rarm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+            (send robot-rarm-state-msg :data (concatenate float-vector (send self :get-arm-val :rarm :current-end-pos) (send self :get-arm-val :rarm :current-end-rpy) (float-vector (send self :get-arm-val :rarm :gripper-pos)) (send self :get-arm-val :rarm :joint-state)))
+            (send robot-rarm-state-msg :header :stamp (ros::time-now))
+            (ros::publish robot-rarm-state-topic-name robot-rarm-state-msg))))
+
   (:publish-robot-action ()
     (setq robot-action-msg (instance eus_imitation::Float32MultiArrayStamped :init))
     (send robot-action-msg :data (send self :get-val 'robot-action))
