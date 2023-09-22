@@ -49,8 +49,8 @@
     t)
   (:reset-arm-val (arm)
     (send-super :reset-arm-val arm)
-    (send self :set-arm-val arm :target-linear-velocity nil)
-    (send self :set-arm-val arm :target-angular-velocity nil)
+    (send self :set-arm-val arm :target-linear-velocity #f(0.0 0.0 0.0))
+    (send self :set-arm-val arm :target-angular-velocity #f(0.0 0.0 0.0))
     (send self :set-arm-val arm :spacenav-joy-axes nil)
     (send self :set-arm-val arm :left nil)
     (send self :set-arm-val arm :prev-left nil)
@@ -151,8 +151,6 @@
                 (make-coords :pos target-pos
                              :rot target-rot))))
       target-coords))
-
-
 
   (:get-target-cartesian-velocity (arm &key (linear-scale 0.1) (angular-scale 1.0))
     (let* ((target-linear-velocity (scale linear-scale (coerce (subseq (send self :get-arm-val arm :spacenav-joy-axes) 0 3) float-vector)))

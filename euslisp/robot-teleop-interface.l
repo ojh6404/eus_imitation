@@ -169,10 +169,10 @@
 
   (:set-init-pose ()
     (send self :update-robot)
-    (ros::ros-info "Set init pose : ~A" *init-pose*)
     (setq *init-pose* (send robot :angle-vector))
     (send self :set-val 'init-pose *init-pose*)
-    (dump-loadable-structure "init-pose.l" *init-pose*))
+    (dump-loadable-structure "init-pose.l" *init-pose*)
+    (ros::ros-info "Set init pose : ~A" *init-pose*))
   (:load-init-pose ()
     (load "init-pose.l") ;; TODO from yaml
     (ros::ros-info "Loaded init pose is ~A" *init-pose*)
