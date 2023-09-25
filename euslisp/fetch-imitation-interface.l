@@ -19,8 +19,7 @@
     (send self :set-val 'min-time 0.3)
     (send self :set-val 'scale 1.5))
 
-
-  (:update-current-gripper-pos ()
+  (:update-current-gripper-pos () ;; TODO
         (if (send robot :larm)
             (send self :set-arm-val :larm :gripper-pos
                     0))
@@ -33,6 +32,36 @@
   (:stop-grasp (arm &key (wait nil))
      (send robot-interface :stop-grasp :wait wait))
 
+  (:init-pose ()
+    (send self :update-robot-model)
+    (send robot :torso :waist-z :joint-angle 200) ;; to avoid collision
+    (send robot-interface :angle-vector (send robot :angle-vector) 3000)
+    (send robot-interface :wait-interpolation)
+    (send self :load-init-pose)
+    (send self :update-robot)
+    (send robot-interface :angle-vector init-pose 3000)
+    (if (send robot :larm)
+        (send self :stop-grasp :larm :wait t))
+    (if (send robot :rarm)
+        (send self :stop-grasp :rarm :wait t))
+    (send robot-interface :wait-interpolation))
+
+
+  (:inverse-kinematics (arm target-coords &rest args)
+    (send* robot arm :inverse-kinematics target-coords
+            :rotation-axis t :move-target (send robot arm :end-coords)
+            :avoid-collision-distance 5 :revert-if-fail nil :stop ik-stop-step
+            :debug-view nil args))
+
+  (:angle-command-vector (arm &key (torso nil))
+      (send self :angle-vector (send robot :angle-vector)
+            av-tm (send self :get-arm-controller :rarm) 0
+            :min-time min-time :scale av-scale)
+      (if torso
+        (send self :angle-vector (send robot :angle-vector)
+              torso-av-tm :torso-controller 0
+              :min-time torso-min-time :scale torso-av-scale)))
+
   (:move-robot () ;; move real robot
       (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
         (progn ;; when data collection is enabled and arm control is enabled
@@ -44,15 +73,16 @@
                   )
                 (progn ;; when one arm is enabled
                   (send self :get-target-coords control-arm :pos-scale scale)
-                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
                   (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
+                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
                   (send self :inverse-kinematics control-arm target-end-effector-coords)
                   (send self :update-robot-action)
                   (send self :publish-robot-action)
                   ))
           ;; (send self :angle-command-vector control-arm :torso nil)
-            (send *ri* :angle-vector-raw (send robot :angle-vector)
-                        av-tm)
+            ;; (send *ri* :angle-vector (send robot :angle-vector) av-tm)
+
+            (send *ri* :angle-vector-raw (send robot :angle-vector) av-tm)
           (if (> (send self :get-arm-val :larm :grasp) 0.5)
               (send self :start-grasp :larm :wait nil)
               (send self :stop-grasp :larm :wait nil))
@@ -69,7 +99,6 @@
               (concatenate float-vector
                   (send self :get-arm-val :rarm :target-end-pos)
                   (send self :get-arm-val :rarm :target-end-rpy)
-                  (float-vector (send self :get-arm-val :rarm :grasp))
                   (float-vector (send self :get-arm-val :rarm :grasp)))))
 
   (:update-robot-state ()
@@ -92,8 +121,7 @@
         (send self :angle-command-vector :rarm :torso nil)
         (if (> rarm-gripper-command 0.01)
             (send self :start-grasp :rarm :wait nil)
-            (send self :stop-grasp :rarm :wait nil))
-        ))
+            (send self :stop-grasp :rarm :wait nil))))
   )
 
 (provide :fetch-imitation-interface)
