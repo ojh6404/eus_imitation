@@ -193,12 +193,11 @@
               (setq req (instance std_srvs::TriggerRequest :init))
               (setq res (ros::service-call record-trigger-service-name req))
               (send self :set-val 'recording nil)
-
               (ros::ros-info "Inititalizing robot...")
-                        (send self :init-pose)
-                        (send self :reset)
-                        (send self :update-robot)
-                        (ros::ros-info "Initiailized"))
+              (send self :init-pose)
+              (send self :reset)
+              (send self :update-robot)
+              (ros::ros-info "Initiailized"))
             (progn
               (send self :update-robot)
               (ros::ros-info "recording start")
@@ -209,18 +208,6 @@
               (ros::ros-info "arm: ~A starting" arm)
               (send self :calib-controller arm)))
           (send self :set-arm-val arm :enable (not enable-p))))))
-
 )
+
 (provide :robot-spacenav-interface)
-
-
-(defun test(&key (imitation nil) (device-type :spacenav))
-  (setq *ri* 1)
-  (setq *ti* (instance robot-spacenav-interface :init :imitation imitation :device-type device-type))
-  (send *ti* :ros-init)
-  (while (ros::ok)
-    (send *ti* :button-cb)
-    (print (send *ti* :get-arm-val :rarm :spacenav-joy-axes))
-    (ros::spin-once)
-    (ros::sleep))
-)
