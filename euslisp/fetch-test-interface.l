@@ -17,7 +17,7 @@
     (send self :set-val 'av-tm 800)
     (send self :set-val 'av-scale 5.0)
     (send self :set-val 'min-time 0.3)
-    (send self :set-val 'scale 1.5))
+    (send self :set-val 'scale 100))
 
   (:update-current-gripper-pos () ;; TODO
         (if (send robot :larm)
@@ -60,26 +60,6 @@
         (send self :angle-vector (send robot :angle-vector)
               torso-av-tm :torso-controller 0
               :min-time torso-min-time :scale torso-av-scale)))
-
-  (:get-target-coords (arm &key (mirror nil) (pos-scale 1000) (rot-scale 1))
-    ;; TODO: support dual arm control
-    (send self :update-current-end-coords)
-    (let* (target-diff-pos target-diff-rpy target-pos target-rpy target-coords (current-end-coords (send self :get-arm-val arm :current-end-coords)))
-      (setq target-diff-pos (scale pos-scale (coerce (subseq (send self :get-arm-val arm :spacenav-joy-axes) 0 3) float-vector)))
-      (setq target-diff-rpy (scale rot-scale (coerce (subseq (send self :get-arm-val arm :spacenav-joy-axes) 3 6) float-vector)))
-      (setq target-pos (float-vector (+ (elt (send current-end-coords :pos) 0) (elt target-diff-pos 0))
-                                     (+ (elt (send current-end-coords :pos) 1) (elt target-diff-pos 1))
-                                     (+ (elt (send current-end-coords :pos) 2) (elt target-diff-pos 2))))
-      ;; (setq target-rpy (float-vector (+ (elt (send current-end-coords :rpy) 0) (elt target-diff-rpy 0)) ;; TODO
-      ;;                                (+ (elt (send current-end-coords :rpy) 1) (elt target-diff-rpy 1))
-      ;;                                (+ (elt (send current-end-coords :rpy) 2) (elt target-diff-rpy 2))))
-      (setq target-coords (make-coords :pos target-pos :rpy (float-vector pi/2 pi/2 -pi/2)))
-      (print target-diff-pos)
-      (send self :set-arm-val arm :target-coords target-coords)
-      (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
-      (send self :set-arm-val arm :target-end-rpy  (elt (rpy-angle (send target-coords :worldrot)) 0))
-      ))
-
   (:move-robot () ;; move real robot
       (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
         (progn ;; when data collection is enabled and arm control is enabled
@@ -89,9 +69,9 @@
                   (send self :get-target-coords :rarm :pos-scale scale)
                   (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords))))
                 (progn ;; when one arm is enabled
-                  (send self :get-target-coords control-arm :pos-scale 100) ;; TODO
-                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
-                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+                  (send self :get-target-coords control-arm :pos-scale scale) ;; TODO
+                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
+                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
                   (send self :inverse-kinematics control-arm target-end-effector-coords)
                   (send self :update-robot-action)
                   (send self :publish-robot-action)))

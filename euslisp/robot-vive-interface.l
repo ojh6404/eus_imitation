@@ -149,7 +149,7 @@
             (target-coords (send tf-gripperref->gripper :transform (send tf-base->gripperref :copy-worldcoords) :world)))
           (send self :set-arm-val arm :target-coords target-coords)
           (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
-          (send self :set-arm-val arm :target-end-rpy  (elt (rpy-angle (send target-coords :worldrot)) 0))
+          (send self :set-arm-val arm :target-end-rpy  (coerce (elt (rpy-angle (send target-coords :worldrot)) 0) float-vector))
       target-coords))
 
   (:controller-cb (arm msg) ;; NOTE no axes because it is not used

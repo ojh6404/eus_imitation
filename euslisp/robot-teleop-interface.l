@@ -239,7 +239,7 @@
                 (send self :set-arm-val :larm :current-end-pos
                         (send (send self :get-arm-val :larm :current-end-coords) :worldpos))
                 (send self :set-arm-val :larm :current-end-rpy
-                        (elt (rpy-angle (send (send self :get-arm-val :larm :current-end-coords) :worldrot)) 0))))
+                        (coerce (elt (rpy-angle (send (send self :get-arm-val :larm :current-end-coords) :worldrot)) 0) float-vector))))
         (if (send robot :rarm)
             (progn
                 (send self :set-arm-val :rarm :current-end-coords
@@ -247,7 +247,7 @@
                 (send self :set-arm-val :rarm :current-end-pos
                         (send (send self :get-arm-val :rarm :current-end-coords) :worldpos))
                 (send self :set-arm-val :rarm :current-end-rpy
-                        (elt (rpy-angle (send (send self :get-arm-val :rarm :current-end-coords) :worldrot)) 0)))))
+                        (coerce (elt (rpy-angle (send (send self :get-arm-val :rarm :current-end-coords) :worldrot)) 0) float-vector)))))
   (:update-current-gripper-pos ()
         (if (send robot :larm)
             (send self :set-arm-val :larm :gripper-pos
