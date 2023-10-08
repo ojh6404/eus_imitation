@@ -1,13 +1,13 @@
 #!/usr/bin/env roseus
 (require :fetch-interface "package://fetcheus/fetch-interface.l")
-(require :robot-vive-interface "package://eus_imitation/euslisp/robot-vive-interface.l")
+(require :robot-spacenav-interface "package://eus_imitation/euslisp/robot-spacenav-interface.l")
 
-(defclass fetch-imitation-interface
-  :super robot-vive-interface
+(defclass fetch-test-interface
+  :super robot-spacenav-interface
   :slots ())
 
 
-(defmethod fetch-imitation-interface
+(defmethod fetch-test-interface
   (:init  (&rest args)
     (send-super* :init args)
     (send self :set-val 'robot *fetch*)
@@ -46,13 +46,11 @@
         (send self :stop-grasp :rarm :wait t))
     (send robot-interface :wait-interpolation))
 
-
   (:inverse-kinematics (arm target-coords &rest args)
     (send* robot arm :inverse-kinematics target-coords
             :rotation-axis t :move-target (send robot arm :end-coords)
             :avoid-collision-distance 5 :revert-if-fail nil :stop ik-stop-step
             :debug-view nil args))
-
 
   (:angle-vector (&rest args)
     (send* robot-interface :angle-vector-raw args))
@@ -63,6 +61,25 @@
               torso-av-tm :torso-controller 0
               :min-time torso-min-time :scale torso-av-scale)))
 
+  (:get-target-coords (arm &key (mirror nil) (pos-scale 1000) (rot-scale 1))
+    ;; TODO: support dual arm control
+    (send self :update-current-end-coords)
+    (let* (target-diff-pos target-diff-rpy target-pos target-rpy target-coords (current-end-coords (send self :get-arm-val arm :current-end-coords)))
+      (setq target-diff-pos (scale pos-scale (coerce (subseq (send self :get-arm-val arm :spacenav-joy-axes) 0 3) float-vector)))
+      (setq target-diff-rpy (scale rot-scale (coerce (subseq (send self :get-arm-val arm :spacenav-joy-axes) 3 6) float-vector)))
+      (setq target-pos (float-vector (+ (elt (send current-end-coords :pos) 0) (elt target-diff-pos 0))
+                                     (+ (elt (send current-end-coords :pos) 1) (elt target-diff-pos 1))
+                                     (+ (elt (send current-end-coords :pos) 2) (elt target-diff-pos 2))))
+      ;; (setq target-rpy (float-vector (+ (elt (send current-end-coords :rpy) 0) (elt target-diff-rpy 0)) ;; TODO
+      ;;                                (+ (elt (send current-end-coords :rpy) 1) (elt target-diff-rpy 1))
+      ;;                                (+ (elt (send current-end-coords :rpy) 2) (elt target-diff-rpy 2))))
+      (setq target-coords (make-coords :pos target-pos :rpy (float-vector pi/2 pi/2 -pi/2)))
+      (print target-diff-pos)
+      (send self :set-arm-val arm :target-coords target-coords)
+      (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
+      (send self :set-arm-val arm :target-end-rpy  (elt (rpy-angle (send target-coords :worldrot)) 0))
+      ))
+
   (:move-robot () ;; move real robot
       (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
         (progn ;; when data collection is enabled and arm control is enabled
@@ -70,16 +87,14 @@
                 (progn ;; when both arms are enabled
                   (send self :get-target-coords :larm :pos-scale scale)
                   (send self :get-target-coords :rarm :pos-scale scale)
-                  (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords)))
-                  )
+                  (send self :inverse-kinematics :arms (list (send self :get-arm-val :larm :target-coords) (send self :get-arm-val :rarm :target-coords))))
                 (progn ;; when one arm is enabled
-                  (send self :get-target-coords control-arm :pos-scale scale)
-                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
-                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
+                  (send self :get-target-coords control-arm :pos-scale 100) ;; TODO
+                  ;; (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (send self :get-arm-val control-arm :target-end-rpy)))
+                  (setq target-end-effector-coords (make-coords :pos (send self :get-arm-val control-arm :target-end-pos) :rpy (float-vector pi/2 pi/2 -pi/2)))
                   (send self :inverse-kinematics control-arm target-end-effector-coords)
                   (send self :update-robot-action)
-                  (send self :publish-robot-action)
-                  ))
+                  (send self :publish-robot-action)))
           (send self :angle-command-vector control-arm :torso nil)
           (if (> (send self :get-arm-val :larm :grasp) 0.5)
               (send self :start-grasp :larm :wait nil)
@@ -89,8 +104,7 @@
               (send self :stop-grasp :rarm :wait nil))
           )
         (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
-          (send self :parse-robot-action)))
-               )
+          (send self :parse-robot-action))))
 
   (:update-robot-action () ;; when data collection
         (send self :set-val 'robot-action
@@ -122,4 +136,4 @@
             (send self :stop-grasp :rarm :wait nil))))
   )
 
-(provide :fetch-imitation-interface)
+(provide :fetch-test-interface)
