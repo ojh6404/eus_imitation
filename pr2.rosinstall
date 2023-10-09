@@ -40,3 +40,7 @@
     local-name: perception/detic_ros
     uri: https://github.com/HiroIshida/detic_ros.git
     version: master
+- git:
+    local-name: vive_ros
+    uri: https://github.com/ojh6404/vive_ros.git
+    version: master
