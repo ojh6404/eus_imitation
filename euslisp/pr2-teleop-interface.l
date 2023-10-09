@@ -1,13 +1,13 @@
 #!/usr/bin/env roseus
 (require :pr2-interface "package://pr2eus/pr2-interface.l")
-(require :robot-spacenav-interface "package://eus_imitation/euslisp/robot-spacenav-interface.l")
+(require :robot-teleop-interface "package://eus_imitation/euslisp/robot-teleop-interface.l")
 
-(defclass pr2-test-interface
-  :super robot-spacenav-interface
+(defclass pr2-teleop-interface
+  :super robot-teleop-interface
   :slots ())
 
 
-(defmethod pr2-test-interface
+(defmethod pr2-teleop-interface
   (:init  (&rest args)
     (send-super* :init args)
     (send self :set-val 'robot *pr2*)
@@ -80,4 +80,4 @@
         ))
   )
 
-(provide :pr2-test-interface)
+(provide :pr2-teleop-interface)
