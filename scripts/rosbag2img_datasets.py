@@ -22,6 +22,7 @@ import imitator.utils.file_utils as FileUtils
 # for no roscore
 rospy.Time = RosUtils.PatchTimer
 
+
 def main(args):
     config = FileUtils.get_config_from_project_name(args.project_name)
     rosbags = RosUtils.get_rosbag_abs_paths(args.rosbag_dir)
@@ -38,23 +39,25 @@ def main(args):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    data_file = h5py.File(os.path.join(output_dir, args.obs_key + "_dataset.hdf5"), mode="w")
-    data = data_file.create_group("data")
-    data.attrs["num_demos"] = len(rosbags)
-    data.attrs["num_obs"] = 1
-    data.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    hdf5_file = h5py.File(
+        os.path.join(output_dir, args.obs_key + "_dataset.hdf5"), mode="w"
+    )
+    demo_group = hdf5_file.create_group("data")
+    demo_group.attrs["num_demos"] = len(rosbags)
+    demo_group.attrs["num_obs"] = 1
+    demo_group.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     img_bridge = CvBridge()
 
     for i, bag in enumerate(tqdm(rosbags)):
         obs_buf = []
 
-        demo = data.create_group("demo_{}".format(i))
+        demo = demo_group.create_group("demo_{}".format(i))
         bag_reader = rosbag.Bag(bag, skip_index=True)
 
         for topic, msg, t in bag_reader.read_messages(topics=[topic_name]):
             if config.obs[args.obs_key].msg_type == "CompressedImage":
-                obs_data =  img_bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
+                obs_data = img_bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
             elif config.obs[args.obs_key].msg_type == "Image":
                 obs_data = img_bridge.imgmsg_to_cv2(msg, "rgb8")
             else:
@@ -72,7 +75,7 @@ def main(args):
                         "image_filter.yaml",
                     )
                 )
-                data_file.close()
+                hdf5_file.close()
                 exit(0)
             else:
                 tunable = HSVBlurCropResolFilter.from_yaml(
@@ -93,7 +96,7 @@ def main(args):
 
         demo.attrs["num_samples"] = len(obs_data)
 
-        data_file.flush()
+        hdf5_file.flush()
 
         if i % 5 == 0 and args.gif:
             clip = ImageSequenceClip(obs_buf, fps=30)
@@ -105,20 +108,35 @@ def main(args):
 
     lengths = []
     for i in range(len(rosbags)):
-        lengths.append(data["demo_{}".format(i)].attrs["num_samples"])
+        lengths.append(demo_group["demo_{}".format(i)].attrs["num_samples"])
 
     total_length = sum(lengths)
     print("Total number of {}".format(total_length))
-    data_file.close()
+
+    # TODO train val split
+    hdf5_file.close()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-pn", "--project_name", type=str)
-    parser.add_argument("-d", "--rosbag_dir", type=str, default="/tmp/dataset")
+    parser.add_argument(
+        "-pn", "--project_name", type=str, required=True, help="project name"
+    )
+    parser.add_argument(
+        "-d", "--rosbag_dir", type=str, required=True, help="path to rosbag directory"
+    )
     parser.add_argument("-obs", "--obs_key", type=str, default="image")
-    parser.add_argument("-t", "--image_tune", action="store_true", default=False)
-    parser.add_argument("--gif", action="store_true", default=False)
+    parser.add_argument(
+        "-t",
+        "--image_tune",
+        action="store_true",
+        default=False,
+        help="tune image filter",
+    )
+    parser.add_argument("--gif", action="store_true", default=False, help="save gif")
+    parser.add_argument(
+        "-r", "--ratio", type=float, default=0.1, help="ratio of validation data"
+    )
     args = parser.parse_args()
 
     main(args)

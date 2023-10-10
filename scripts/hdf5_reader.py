@@ -3,7 +3,6 @@
 import h5py
 import numpy as np
 import argparse
-import json
 
 from imitator.utils.file_utils import sort_names_by_number
 
@@ -17,17 +16,26 @@ def main(args):
     for ep in demos:
         for obs in f["data"][ep]["obs"].keys():
             traj_lengths.append(f["data"][ep]["obs"][obs].shape[0])
-            print(f["data"][ep]["obs"][obs].shape[0])
             break
-    # for ep in demos:
-    #     traj_lengths.append(len(f["data"][ep]["actions"]))
 
     total_traj_length = np.sum(traj_lengths)
+
+    train_mask = None
+    valid_mask = None
+    if "mask" in f.keys():
+        if "train" in f["mask"].keys():
+            train_mask = f["mask"]["train"]
+        if "val" in f["mask"].keys():
+            valid_mask = f["mask"]["val"]
 
     print("=============================")
     print("Dataset info")
     print("Total demos: {}".format(len(demos)))
     print("Total trajectories: {}".format(total_traj_length))
+    if train_mask is not None:
+        print("Train trajectories: {}".format(np.sum(train_mask)))
+    if valid_mask is not None:
+        print("Valid trajectories: {}".format(np.sum(valid_mask)))
     print("Trajectory length mean: {}".format(np.mean(traj_lengths)))
     print("Trajectory length std: {}".format(np.std(traj_lengths)))
     print("Trajectory length min: {}".format(np.min(traj_lengths)))
@@ -41,12 +49,6 @@ def main(args):
 
     if args.verbose:
         print("=============================")
-        # print("Date: {}".format(f["data"].attrs["date"]))
-        # print(
-        #     "Config: \n{}".format(
-        #         json.dumps(json.loads(f["data"].attrs["config"]), indent=4)
-        #     )
-        # )
         print("Demo Lenghts: {}".format(traj_lengths))
         print("=============================")
         print("=============================")
@@ -59,9 +61,7 @@ def main(args):
             print("")
         if "actions" in f["data"][demos[0]].keys():
             print("First data: {}".format(f["data"][demos[0]]["actions"][0]))
-
         print("")
-
         for attr_name in f["data"].attrs.keys():
             if "obs_max" in attr_name:
                 print(
@@ -75,12 +75,8 @@ def main(args):
                         attr_name.split("/")[-1], f["data"].attrs[attr_name]
                     )
                 )
-
         print("")
-        # print("Env Meta: {}".format(f["data"].attrs["env_args"]))
-
         print("=============================")
-
     f.close()
 
 

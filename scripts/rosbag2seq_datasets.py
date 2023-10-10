@@ -25,6 +25,7 @@ import imitator.utils.file_utils as FileUtils
 # for no roscore
 rospy.Time = RosUtils.PatchTimer
 
+
 def main(args):
     config = FileUtils.get_config_from_project_name(args.project_name)
     rosbags = RosUtils.get_rosbag_abs_paths(args.rosbag_dir)
@@ -34,7 +35,6 @@ def main(args):
     mf_cfg = config.ros.message_filters
     obs_cfg = config.obs
     action_cfg = config.actions
-
 
     obs_keys = list(obs_cfg.keys())
     obs_topics = [obs.topic_name for obs in obs_cfg.values()]
@@ -46,30 +46,38 @@ def main(args):
     topics = obs_topics + [action_topic]
     msg_types = obs_msg_types + [action_msg_type]
 
+    if args.gif:
+        assert args.image in obs_keys, "image key not found in obs_keys to write gif"
+
     subscribers = dict()
     for topic, msg_type in zip(topics, msg_types):
         subscribers[topic] = message_filters.Subscriber(topic, msg_type)
 
     img_bridge = CvBridge()
-    ts = message_filters.ApproximateTimeSynchronizer(subscribers.values(), queue_size=mf_cfg.queue_size, slop=mf_cfg.slop, allow_headerless=False)
-
+    ts = message_filters.ApproximateTimeSynchronizer(
+        subscribers.values(),
+        queue_size=mf_cfg.queue_size,
+        slop=mf_cfg.slop,
+        allow_headerless=False,
+    )
 
     print("Observation and Action keys: {}".format(obs_keys + ["action"]))
     print("Subscribing to topics: {}".format(topics))
 
-
     def callback(*msgs):
         for topic, msg in zip(topics, msgs):
-            if topic == action_topic: # action
+            if topic == action_topic:  # action
                 data = np.array(msg.data).astype(np.float32)
                 action_buf.append(data)
             else:
                 if "Image" in msg._type:
                     if "Compressed" in msg._type:
-                        data = img_bridge.compressed_imgmsg_to_cv2(msg, "rgb8").astype(np.uint8)
+                        data = img_bridge.compressed_imgmsg_to_cv2(msg, "rgb8").astype(
+                            np.uint8
+                        )
                     else:
                         data = img_bridge.imgmsg_to_cv2(msg, "rgb8").astype(np.uint8)
-                    if args.image_tune: # tuning image with first data
+                    if args.image_tune:  # tuning image with first data
                         tunable = HSVBlurCropResolFilter.from_image(data)
                         print("Press q to finish tuning")
                         tunable.launch_window()
@@ -81,9 +89,9 @@ def main(args):
                                 "image_filter.yaml",
                             )
                         )
-                        data_file.close()
+                        hdf5_file.close()
                         exit(0)
-                    else: # load from yaml and proess image
+                    else:  # load from yaml and proess image
                         assert os.path.exists(
                             os.path.join(
                                 FileUtils.get_config_folder(args.project_name),
@@ -108,12 +116,13 @@ def main(args):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    data_file = h5py.File(os.path.join(output_dir, "dataset.hdf5"), mode="w")
-    data = data_file.create_group("data")
-    data.attrs["num_demos"] = len(rosbags)
-    data.attrs["num_obs"] = len(obs_keys)
-    data.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    data.attrs["hz"] = config.ros.rate
+    # create train dataset
+    hdf5_file = h5py.File(os.path.join(output_dir, "dataset.hdf5"), mode="w")
+    demo_group = hdf5_file.create_group("data")
+    demo_group.attrs["num_demos"] = len(rosbags)
+    demo_group.attrs["num_obs"] = len(obs_keys)
+    demo_group.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    demo_group.attrs["hz"] = config.ros.rate
 
     action_min = None
     action_max = None
@@ -129,12 +138,12 @@ def main(args):
 
     print("Processing rosbags...")
     for i, bag in enumerate(tqdm(rosbags)):
-        obs_buf = dict() # {obs_key: [obs_data]}, obs_data is numpy array
-        action_buf = [] # [action_data], action_data is numpy array
+        obs_buf = dict()  # {obs_key: [obs_data]}, obs_data is numpy array
+        action_buf = []  # [action_data], action_data is numpy array
         for obs_key in obs_keys:
             obs_buf[obs_key] = []
 
-        demo = data.create_group("demo_{}".format(i))
+        demo = demo_group.create_group("demo_{}".format(i))
         bag_reader = rosbag.Bag(bag, skip_index=True)
 
         for message_idx, (topic, msg, t) in enumerate(
@@ -186,18 +195,38 @@ def main(args):
             action_min = np.minimum(action_min, np.min(action_data, axis=0))
             action_max = np.maximum(action_max, np.max(action_data, axis=0))
 
-        assert len(obs_data) == len(action_data) # obs_data and action_data should have same length
+        assert len(obs_data) == len(
+            action_data
+        )  # obs_data and action_data should have same length
         demo.attrs["num_samples"] = len(action_data)
-        data_file.flush()
+        hdf5_file.flush()
 
         os.makedirs(os.path.join(output_dir, "gif"), exist_ok=True)
         if i % 5 == 0 and args.gif:
-            clip = ImageSequenceClip(obs_buf["image"], fps=10) # TODO image key
+            clip = ImageSequenceClip(obs_buf[args.image], fps=10)  # TODO image key
             clip.write_gif(
                 os.path.join(output_dir, "gif", "demo_{}.gif".format(i)),
                 fps=10,
                 verbose=False,
             )
+
+    # train val split
+    demos = list(demo_group.keys())
+    num_demos = len(demos)
+    num_val = int(args.ratio * num_demos)
+    mask = np.zeros(num_demos)
+    mask[:num_val] = 1
+    np.random.shuffle(mask)
+    mask = mask.astype(int)
+    train_ids = (1 - mask).nonzero()[0]
+    valid_ids = mask.nonzero()[0]
+    train_keys = [demos[i] for i in train_ids]
+    valid_keys = [demos[i] for i in valid_ids]
+
+    # create mask
+    mask_group = hdf5_file.create_group("mask")
+    mask_group.create_dataset("train", data=np.array(train_keys, dtype="S"))
+    mask_group.create_dataset("valid", data=np.array(valid_keys, dtype="S"))
 
     # after processing all rosbags
     # save data for normalization
@@ -214,17 +243,36 @@ def main(args):
         normalize_data["obs"][obs_key]["min"] = obs_min_buf[obs_key].tolist()
 
     normalize_cfg = OmegaConf.create(normalize_data)
-    OmegaConf.save(normalize_cfg, os.path.join(FileUtils.get_config_folder(args.project_name), "normalize.yaml"))
+    OmegaConf.save(
+        normalize_cfg,
+        os.path.join(FileUtils.get_config_folder(args.project_name), "normalize.yaml"),
+    )
 
-    data_file.close()
+    hdf5_file.close()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-pn", "--project_name", type=str)
-    parser.add_argument("-d", "--rosbag_dir", type=str, default="/tmp/dataset")
-    parser.add_argument("-t", "--image_tune", action="store_true", default=False)
-    parser.add_argument("--gif", action="store_true", default=False)
+    parser.add_argument(
+        "-pn", "--project_name", type=str, required=True, help="project name"
+    )
+    parser.add_argument(
+        "-d", "--rosbag_dir", type=str, required=True, help="path to rosbag directory"
+    )
+    parser.add_argument(
+        "-t",
+        "--image_tune",
+        action="store_true",
+        default=False,
+        help="tune image filter",
+    )
+    parser.add_argument("--gif", action="store_true", default=False, help="save gif")
+    parser.add_argument(
+        "--image", type=str, default="image", help="image obs key to write gif"
+    )
+    parser.add_argument(
+        "-r", "--ratio", type=float, default=0.1, help="ratio of validation data"
+    )
     args = parser.parse_args()
 
     main(args)
