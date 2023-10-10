@@ -114,8 +114,6 @@ def main(args):
     data.attrs["num_obs"] = len(obs_keys)
     data.attrs["date"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     data.attrs["hz"] = config.ros.rate
-    # data.attrs["config"] = json.dumps(config.dataset, indent=4)
-    # data.attrs["env_args"] = json.dumps(config.dataset.data.env_args, indent=4) # TODO
 
     action_min = None
     action_max = None
