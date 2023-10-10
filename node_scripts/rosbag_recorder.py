@@ -88,7 +88,9 @@ class RosbagRecorderNode(object):
                 os.remove(remove_filepath)
                 self.rosbag_files.pop()
                 rospy.loginfo("Remove rosbag : {}".format(self.file_cnt - 1))
-                self.sound_client.say("Delete rosbag {}".format(self.file_cnt - 1), volume=self.volume)
+                self.sound_client.say(
+                    "Delete rosbag {}".format(self.file_cnt - 1), volume=self.volume
+                )
         return TriggerResponse(success=True, message="remove rosbag")
 
     def create_cmd_rosbag(self, rosbag_filepath):
@@ -141,7 +143,8 @@ class RosbagRecorderNode(object):
         self.closure_stop()
         self.closure_stop = None
         self.sound_client.say(
-            "Finish saving rosbag. Total number is {}".format(self.file_cnt + 1), volume=self.volume
+            "Finish saving rosbag. Total number is {}".format(self.file_cnt + 1),
+            volume=self.volume,
         )
         rospy.loginfo("Stop record rosbag : {}".format(self.file_cnt))
         self.is_record = not self.is_record

@@ -136,8 +136,9 @@ class ROSRollout(RolloutBase):
 
     @torch.no_grad()
     def render(self, obs: Dict[str, Any]) -> None:
-
-        if self.actor_type == TransformerActor: # obs is stacked if transformer like [1, T, D]
+        if (
+            self.actor_type == TransformerActor
+        ):  # obs is stacked if transformer like [1, T, D]
             # so we need to use last time step obs to render
             obs = {k: v[:, -1, :] for k, v in obs.items()}
 
