@@ -26,7 +26,9 @@
   (:update-current-gripper-pos ()
      (if (send robot :rarm)
          (send self :set-arm-val :rarm :gripper-pos
-                (send robot-interface :gripper :rarm :position))))
+               (if (send robot-interface :gripper :position)
+                   (send robot-interface :gripper :position)
+                   0.0))))
   (:inverse-kinematics (arm target-coords &rest args)
     (send* robot arm :inverse-kinematics target-coords
             :rotation-axis t :move-target (send robot arm :end-coords)
@@ -42,23 +44,6 @@
         (send self :angle-vector (send robot :angle-vector)
               torso-av-tm :torso-controller 0
               :min-time torso-min-time :scale torso-av-scale)))
-
-  ;; (:move-robot () ;; move real robot
-  ;;     (if (and data-collection control-arm) ;; TODO loop-enable : when one of arm is enabled
-  ;;       (progn ;; when data collection is enabled and arm control is enabled
-  ;;         (send self :get-target-coords control-arm :pos-scale scale)
-  ;;         (send self :inverse-kinematics control-arm (send self :get-arm-val control-arm :target-end-pos))
-  ;;         (send self :update-robot-action)
-  ;;         (send self :publish-robot-action)
-  ;;         (send self :angle-command-vector control-arm :torso nil)
-  ;;         (if (> (send self :get-arm-val :larm :grasp) 0.5)
-  ;;             (send self :start-grasp :larm :wait nil)
-  ;;             (send self :stop-grasp :larm :wait nil))
-  ;;         (if (> (send self :get-arm-val :rarm :grasp) 0.5)
-  ;;             (send self :start-grasp :rarm :wait nil)
-  ;;             (send self :stop-grasp :rarm :wait nil)))
-  ;;       (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
-  ;;         (send self :parse-robot-action))))
 
   ;; NOTE user define
   (:update-robot-action () ;; when data collection
