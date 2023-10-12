@@ -1,8 +1,8 @@
 #!/usr/bin/env roseus
-(require :robot-imitation-interface "package://eus_imitation/euslisp/robot-imitation-interface.l")
+(require :pr2-imitation-interface "package://eus_imitation/euslisp/pr2-imitation-interface.l")
 
-(defclass robot-spacenav-interface
-  :super robot-imitation-interface
+(defclass pr2-spacenav-interface
+  :super pr2-imitation-interface
   :slots (spacenav-joy-topic-name
           spacenav-joy-axes-threshold
 
@@ -24,12 +24,15 @@
           rarm-prev-right
           rarm-right-count))
 
-(defmethod robot-spacenav-interface
+
+
+(defmethod pr2-spacenav-interface
   (:init  (&rest args)
     (send-super* :init args)
     (send self :set-val 'spacenav-joy-topic-name "/spacenav/joy") ;; TODO only consider one spacenav now
     (send self :set-val 'left-wait-count 5)
     (send self :set-val 'right-wait-count 5)
+    (send self :set-val 'scale 100)
 
     (send self :set-val 'spacenav-joy-axes-threshold 0.2)
     self)
@@ -72,10 +75,9 @@
           :button-toggle button-toggle))
 
   (:calib-controller (arm)
-    ;; NOTE its dummy because we use joy-axes as target coords diff or joint velocity
     (ros::ros-info "Calibrating controller ~A" arm)
     (send self :update-robot))
-  (:get-target-coords (arm &key (mirror nil) (pos-scale 100) (rot-scale 1))
+  (:get-target-coords (arm &key (mirror nil) (pos-scale 100) (rot-scale (/ pi 4)))
     (let* ((spacenav-joy-axes (coerce (send self :get-arm-val arm :spacenav-joy-axes) float-vector))
            (joy-diff-pos (subseq spacenav-joy-axes 0 3))
            (joy-diff-rot (subseq spacenav-joy-axes 3 6))
@@ -157,4 +159,4 @@
               (send self :calib-controller arm)))
           (send self :set-arm-val arm :enable (not enable-p)))))))
 
-(provide :robot-spacenav-interface)
+(provide :pr2-spacenav-interface)

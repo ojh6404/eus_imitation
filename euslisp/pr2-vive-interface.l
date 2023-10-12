@@ -1,8 +1,8 @@
 #!/usr/bin/env roseus
-(require :robot-imitation-interface "package://eus_imitation/euslisp/robot-imitation-interface.l")
+(require :pr2-imitation-interface "package://eus_imitation/euslisp/pr2-imitation-interface.l")
 
-(defclass robot-vive-interface
-  :super robot-imitation-interface
+(defclass pr2-vive-interface
+  :super pr2-imitation-interface
   :slots (vrbase-device-id
           larm-controller-device-id
           rarm-controller-device-id
@@ -48,7 +48,7 @@
           rarm-tf-controllerref->controller
           rarm-tf-gripperref->gripper))
 
-(defmethod robot-vive-interface
+(defmethod pr2-vive-interface
   (:init  (&rest args)
     (send-super* :init args)
 
@@ -187,6 +187,4 @@
     (send self :init-cb :larm :button :grip) ;; check grip button to initialize robot
     (send self :init-cb :rarm :button :grip)))
 
-(provide :robot-vive-interface)
-
-
+(provide :pr2-vive-interface)
