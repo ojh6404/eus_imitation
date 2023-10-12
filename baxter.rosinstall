@@ -36,6 +36,11 @@
     uri: https://github.com/k-okada/baxter_simulator.git
     version: fix_noetic
 - git:
+    # for noetic-client to send melodic moveit msgs
+    local-name: misc/moveit_msgs
+    uri: https://github.com/ros-planning/moveit_msgs.git
+    version: 0.10.1
+- git:
     local-name: ros-planning/moveit_robots
     uri: https://github.com/ros-planning/moveit_robots.git
     version: kinetic-devel
