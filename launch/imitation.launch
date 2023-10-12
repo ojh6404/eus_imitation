@@ -1,0 +1,17 @@
+<launch>
+  <arg name="robot" default="pr2" /> <!-- pr2, fetch, baxter, kinova  -->
+  <arg name="device" default="vive" />
+  <arg name="imitation_mode" default="true" />
+
+  <group ns="eus_imitation">
+    <!-- controller -->
+    <node if="$(eval robot=='kinova')" pkg="eus_imitation" type="gripper-control.l" name="kinova_gripper_control" />
+
+    <include if="$(eval device=='spacenav')" file="$(find eus_imitation)/launch/device/spacenav.launch" />
+
+    <!-- <include if="$(eval device=='vive')" file="$(find eus_imitation)/launch/device/vive.launch" /> -->
+
+    <node pkg="eus_imitation" type="$(arg robot)-$(arg device)-control.l" name="$(arg robot)_imitation"
+          args="&quot;(main)&quot;" output="screen" />
+  </group>
+</launch>
