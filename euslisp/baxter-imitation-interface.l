@@ -13,12 +13,19 @@
 
    ;; Baxter IK control settings
     (send self :set-val 'ik-stop-step 10)
-    (send self :set-val 'av-tm 300)
-    (send self :set-val 'av-scale 3.0)
+    (send self :set-val 'av-tm 800)
+    (send self :set-val 'av-scale 5.0)
     (send self :set-val 'min-time 0.3)
     (send self :set-val 'scale 1.5))
 
   ;; Baxter
+  (:update-current-gripper-pos ()
+        (if (send robot :larm)
+            (send self :set-arm-val :larm :gripper-pos
+                    0.0))
+        (if (send robot :rarm)
+            (send self :set-arm-val :rarm :gripper-pos
+                    0.0)))
   (:angle-vector (&rest args)
     (send* robot-interface :angle-vector-raw args))
   (:inverse-kinematics (arm target-coords &rest args)
