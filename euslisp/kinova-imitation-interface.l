@@ -10,6 +10,7 @@
   (:init  (&rest args)
     (send-super* :init args)
     (send self :set-val 'robot *kinova*)
+    (send self :set-val 'robot-name "kinova")
 
    ;; KINOVA IK control settings
     (send self :set-val 'ik-stop-step 10)

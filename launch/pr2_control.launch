@@ -1,5 +1,11 @@
 <launch>
-  <!-- euslisp-->
-  <node pkg="eus_imitation" type="pr2-spacenav-control.l" name="pr2_control"
-        args="&quot;(main)&quot;" output="screen" />
+  <arg name="robot" default="pr2" />
+  <arg name="ns" default="eus_imitation" />
+  <arg name="device" default="vive" />
+  <arg name="imitation_mode" default="nil"/>
+
+  <rosparam ns="$(arg ns)" command="load" file="$(find eus_imitation)/config/pr2/init_pose.yaml"/>
+  <node pkg="eus_imitation" type="$(arg robot)-$(arg device)-control.l" name="robot_control"
+        args="&quot;(main :imitation $(arg imitation_mode) :device :$(arg device))&quot;" output="screen" />
+  <include if="$(eval device=='spacenav')" file="$(find eus_imitation)/device/spacenav.launch" />
 </launch>

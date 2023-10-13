@@ -10,6 +10,7 @@
   (:init  (&rest args)
     (send-super* :init args)
     (send self :set-val 'robot *fetch*)
+    (send self :set-val 'robot-name "fetch")
 
    ;; fetch IK control settings
     (send self :set-val 'ik-stop-step 10)

@@ -17,6 +17,7 @@
   :slots (;; eus interface
           robot
           robot-interface
+          robot-name
           draw-object-list
 
           ;; ROS settings
@@ -136,25 +137,41 @@
     (send self :set-arm-val arm :target-gripper-pos 0.09)
     (send self :set-arm-val arm :current-end-pos nil)
     (send self :set-arm-val arm :current-end-rpy nil))
-  (:set-init-pose () ;; TODO yaml or ros param
-    (send self :update-robot)
-    (setq *init-pose* (send robot :angle-vector))
-    (send self :set-val 'init-pose *init-pose*)
-    (dump-loadable-structure "init-pose.l" *init-pose*)
-    (ros::ros-info "Set init pose : ~A" *init-pose*))
-  (:load-init-pose () ;; TODO yaml or ros param
-    (load "init-pose.l")
-    (ros::ros-info "Loaded init pose is ~A" *init-pose*)
-    (send self :set-val 'init-pose *init-pose*))
+
+  (:dump-pose (pose &key (pose-name "init_pose"))
+    (let ((package-path (ros::rospack-find "eus_imitation")))
+      (with-open-file (str (concatenate string package-path "/config/" robot-name "/" pose-name ".yaml" )
+                      :direction :output
+                      :if-exists :supersede
+                      :if-does-not-exist :create)
+        (format str "~A:~%" pose-name)
+        (dotimes (i (length pose))
+          (format str " - ~A ~%" (elt pose i))))
+      (ros::ros-info "Dump pose : ~A" pose)))
+  (:set-init-pose (init-pose)
+    (send self :dump-pose init-pose :pose-name "init_pose")
+    (ros::set-param "/eus_imitation/init_pose" (coerce init-pose cons))
+    (ros::ros-info "Initial Pose setted and dumped : ~A" init-pose))
+  (:load-init-pose ()
+    (let (init-pose
+           (package-path (ros::rospack-find "eus_imitation")))
+    (if (setq init-pose (ros::get-param "/eus_imitation/init_pose"))
+        (progn
+          (setq init-pose (coerce init-pose float-vector))
+          (ros::ros-info "Loaded init pose : ~A" init-pose))
+        (progn
+          (setq init-pose (send robot :reset-pose))
+          (send self :set-init-pose init-pose)))
+    (send self :set-val 'init-pose init-pose)))
   (:init-pose ()
     (send self :load-init-pose)
     (send self :update-robot)
     (send robot-interface :angle-vector init-pose 3000)
+    (send robot-interface :wait-interpolation)
     (if (send robot :larm)
         (send self :stop-grasp :larm :wait t))
     (if (send robot :rarm)
-        (send self :stop-grasp :rarm :wait t))
-    (send robot-interface :wait-interpolation))
+        (send self :stop-grasp :rarm :wait t)))
   (:get-arm-controller (arm)
     (cond
       ((eq arm :larm) :larm-controller)
@@ -401,9 +418,6 @@
       (if init-button-p
           (progn
             (ros::ros-info "Inititalizing robot...")
-            (print "test")
-            (print arm)
-            (print button)
             (send self :init-pose)
             (send self :reset)
             (send self :update-robot)

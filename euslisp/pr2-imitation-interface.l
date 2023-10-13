@@ -10,6 +10,7 @@
   (:init  (&rest args)
     (send-super* :init args)
     (send self :set-val 'robot *pr2*)
+    (send self :set-val 'robot-name "pr2")
 
    ;; PR2 IK control settings
     (send self :set-val 'ik-stop-step 10)

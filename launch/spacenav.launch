@@ -1,4 +1,0 @@
-<launch>
-  <node pkg="eus_imitation" type="spacenavd.sh" name="spacenavd" />
-  <include file="$(find spacenav_node)/launch/classic.launch" />
-</launch>
