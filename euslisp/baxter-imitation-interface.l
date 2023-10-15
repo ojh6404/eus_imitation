@@ -62,7 +62,7 @@
         ;; execute action
         (send self :inverse-kinematics :rarm rarm-target-end-effector-coords)
         (send self :angle-command-vector :rarm :torso nil)
-        (if (> rarm-gripper-command (send self :get-val 'gripper-threshold))
+        (if (> rarm-gripper-command gripper-threshold)
             (send self :start-grasp :rarm :wait nil)
             (send self :stop-grasp :rarm :wait nil)))))
 
