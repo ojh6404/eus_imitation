@@ -54,9 +54,12 @@
 
    ;; for frame and vive controller
     (send self :set-val 'tfl (instance ros::transform-listener :init))
-    (send self :set-val 'vrbase-frame-id (format nil "lighthouse_LHB_~A" "8E924CC3"))
-    (send self :set-arm-val :larm :controller-device-id "FD35BD42")
-    (send self :set-arm-val :rarm :controller-device-id "F7AFBF47")
+    (send self :set-val 'vrbase-frame-id
+     (format nil "lighthouse_LHB_~A" (ros::get-param "/eus_imitation/b_lighthouse_id")))
+    (send self :set-arm-val :larm :controller-device-id
+     (ros::get-param "/eus_imitation/l_controller_id"))
+    (send self :set-arm-val :rarm :controller-device-id
+     (ros::get-param "/eus_imitation/r_controller_id"))
 
     (send self :set-val 'recording nil)
     (send self :set-val 'trigger-wait-count 5)

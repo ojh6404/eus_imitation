@@ -5,22 +5,23 @@ import threading
 import time
 import signal
 import os
+import sys
 
-from omegaconf import OmegaConf
 import rospy
 import rospkg
 from std_srvs.srv import Trigger, TriggerResponse
 from sound_play.libsoundplay import SoundClient
 
-
 import imitator.utils.ros_utils as RosUtils
+import imitator.utils.file_utils as FileUtils
 
 
 class RosbagRecorderNode(object):
-    def __init__(self):
+    def __init__(self, project_name):
         package_path = rospkg.RosPack().get_path("eus_imitation")
+        self.project_name = project_name
         try:
-            self.config = OmegaConf.load("{}/config/config.yaml".format(package_path))
+            self.config = FileUtils.get_config_from_project_name(self.project_name)
         except:
             raise FileNotFoundError("config.yaml not found")
 
@@ -34,29 +35,15 @@ class RosbagRecorderNode(object):
         except OSError:
             print("Error: Failed to create the directory.")
 
-        # self.record_topics = self.config.rosbag.record_topics
-
         self.obs_cfg = self.config.obs
-
+        self.ros_cfg = self.config.ros
         self.record_topics = []
-
         for key in self.obs_cfg.keys():
             self.record_topics.append(self.obs_cfg[key].topic_name)
-
-        self.action_topic = self.config.actions.topic_name
-        self.record_topics.append(self.action_topic)
-
-        # just for record
-        self.record_topics.append("/joint_states")
-        self.record_topics.append("/eus_imitation/l_arm_state")
-        self.record_topics.append("/eus_imitation/r_arm_state")
-        self.record_topics.append("/tf")
-        # self.record_topics.append("/kinect_head/depth_registered/image_raw/compressedDepth")
-        self.record_topics.append("/kinect_head/depth_registered/image_raw/compressed")
-        # self.record_topics.append("/kinect_head/depth_registered/half/points")
-        self.record_topics.append("/eus_imitation/all_robot_state")
+        for topic in self.ros_cfg.additional_topics:
+            self.record_topics.append(topic)
+        self.record_topics.append(self.config.actions.topic_name)
         self.record_topics = list(set(self.record_topics))
-
         rospy.loginfo("Recording topics : {}".format(self.record_topics))
 
         self.is_record = False
@@ -154,7 +141,8 @@ class RosbagRecorderNode(object):
 
 
 if __name__ == "__main__":
+    project_name = sys.argv[1]
     rospy.init_node("rosbag_recorder")
     rospy.loginfo("Start rosbag recorder...")
-    rosbag_manager = RosbagRecorderNode()
+    rosbag_manager = RosbagRecorderNode(project_name)
     rospy.spin()
