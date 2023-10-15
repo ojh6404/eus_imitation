@@ -4,12 +4,14 @@
   <arg name="ns" default="eus_imitation" />
   <arg name="device" default="vive" />
   <arg name="imitation_mode" default="nil"/>
+  <arg name="rate" default="10"/>
 
-  <rosparam ns="$(arg ns)" command="load" file="$(find eus_imitation)/config/$(arg robot)/init_pose.yaml"/>
-  <rosparam if="$(eval device=='vive')" ns="$(arg ns)" command="load" file="$(find eus_imitation)/config/vive/default_vive_ids.yaml"/>
+  <group ns="$(arg ns)">
+    <rosparam command="load" file="$(find eus_imitation)/config/$(arg robot)/init_pose.yaml"/>
+    <rosparam if="$(eval device=='vive')" command="load" file="$(find eus_imitation)/config/vive/default_vive_ids.yaml"/>
+  </group>
   <node pkg="eus_imitation" type="main.l" name="robot_control"
         args="&quot;(main :robot :$(arg robot) :imitation $(arg imitation_mode) :device :$(arg device))&quot;" output="screen" />
-  <node if="$(eval bool(project))" pkg="eus_imitation" type="rosbag_recorder.py" name="rosbag_recorder"
-        args="$(arg project)" output="screen" />
+  <node if="$(eval bool(project))" pkg="eus_imitation" type="rosbag_recorder.py" name="rosbag_recorder" args="$(arg project)" output="screen" />
   <include if="$(eval device=='spacenav')" file="$(find eus_imitation)/launch/device/spacenav.launch" />
 </launch>

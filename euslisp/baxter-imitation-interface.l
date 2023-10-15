@@ -16,8 +16,7 @@
     (send self :set-val 'ik-stop-step 10)
     (send self :set-val 'av-tm 800)
     (send self :set-val 'av-scale 5.0)
-    (send self :set-val 'min-time 0.3)
-    (send self :set-val 'scale 1.5))
+    (send self :set-val 'min-time 0.3))
 
   ;; Baxter
   (:update-current-gripper-pos ()

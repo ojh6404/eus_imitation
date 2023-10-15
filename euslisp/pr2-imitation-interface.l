@@ -16,8 +16,7 @@
     (send self :set-val 'ik-stop-step 10)
     (send self :set-val 'av-tm 800)
     (send self :set-val 'av-scale 5.0)
-    (send self :set-val 'min-time 0.3)
-    (send self :set-val 'scale 1.5))
+    (send self :set-val 'min-time 0.3))
 
   ;; NOTE user can define action and state
   (:update-robot-action () ;; when data collection
@@ -25,7 +24,6 @@
               (concatenate float-vector
                   (send self :get-arm-val :rarm :target-end-pos)
                   (send self :get-arm-val :rarm :target-end-rpy)
-                  (float-vector (send self :get-arm-val :rarm :grasp))
                   (float-vector (send self :get-arm-val :rarm :grasp)))))
   (:update-robot-state ()
         (send self :set-val 'robot-state
