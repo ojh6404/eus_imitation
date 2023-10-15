@@ -1,6 +1,6 @@
 #!/usr/bin/env roseus
 (require :baxter-interface "package://baxtereus/baxter-interface.l")
-(require :robot-imitation-interface "package://eus_imitation/euslisp/robot-imitation-interface.l")
+(require :robot-imitation-interface "package://eus_imitation/euslisp/lib/robot-imitation-interface.l")
 
 (defclass baxter-imitation-interface
   :super robot-imitation-interface

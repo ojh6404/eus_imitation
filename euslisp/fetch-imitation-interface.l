@@ -1,6 +1,6 @@
 #!/usr/bin/env roseus
 (require :fetch-interface "package://fetcheus/fetch-interface.l")
-(require :robot-imitation-interface "package://eus_imitation/euslisp/robot-imitation-interface.l")
+(require :robot-imitation-interface "package://eus_imitation/euslisp/lib/robot-imitation-interface.l")
 
 (defclass fetch-imitation-interface
   :super robot-imitation-interface

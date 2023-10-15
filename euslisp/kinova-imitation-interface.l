@@ -1,6 +1,6 @@
 #!/usr/bin/env roseus
 (require :kinovaeus "package://kinovaeus/kinova-interface.l")
-(require :robot-imitation-interface "package://eus_imitation/euslisp/robot-imitation-interface.l")
+(require :robot-imitation-interface "package://eus_imitation/euslisp/lib/robot-imitation-interface.l")
 
 (defclass kinova-imitation-interface
   :super robot-imitation-interface

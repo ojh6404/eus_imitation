@@ -1,6 +1,6 @@
 #!/usr/bin/env roseus
 (require :pr2-interface "package://pr2eus/pr2-interface.l")
-(require :robot-imitation-interface "package://eus_imitation/euslisp/robot-imitation-interface.l")
+(require :robot-imitation-interface "package://eus_imitation/euslisp/lib/robot-imitation-interface.l")
 
 (defclass pr2-imitation-interface
   :super robot-imitation-interface

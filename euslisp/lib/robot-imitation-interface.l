@@ -1,5 +1,5 @@
 #!/usr/bin/env roseus
-(require :robot-teleop-interface "package://eus_imitation/euslisp/robot-teleop-interface.l")
+(require :robot-teleop-interface "package://eus_imitation/euslisp/lib/robot-teleop-interface.l")
 
 (defclass robot-imitation-interface
   :super robot-teleop-interface
