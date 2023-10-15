@@ -89,11 +89,8 @@
     (ros::advertise robot-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise robot-larm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise robot-rarm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
-    ;; (if (send self :get-val 'data-collection)
-    ;;   (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
-    (if (send self :get-val 'data-collection) ;; NOTE pub robot action when data collection, sub when imitation
-      (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1)
-      (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1))
+    (if data-collection
+      (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
     t)
   (:reset-arm-val (arm)
     (send-super :reset-arm-val arm)
@@ -197,7 +194,7 @@
     (let ((robot-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
           (robot-larm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
           (robot-rarm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init)))
-      (send robot-state-msg :data (send self :get-val 'robot-state))
+      (send robot-state-msg :data robot-state)
       (send robot-state-msg :header :stamp (ros::time-now))
       (ros::publish robot-state-topic-name robot-state-msg)
       (if (send robot :larm)
@@ -212,7 +209,7 @@
               (ros::publish robot-rarm-state-topic-name robot-rarm-state-msg)))))
   (:publish-robot-action ()
     (let ((robot-action-msg (instance eus_imitation::Float32MultiArrayStamped :init)))
-      (send robot-action-msg :data (send self :get-val 'robot-action))
+      (send robot-action-msg :data robot-action)
       (send robot-action-msg :header :stamp (ros::time-now))
       (ros::publish robot-action-topic-name robot-action-msg)))
   (:inverse-kinematics (arm target-coords &rest args)
@@ -293,13 +290,13 @@
                   (send self :update-robot-action)
                   (send self :publish-robot-action)))
           (send self :angle-command-vector control-arm :torso nil)
-          (if (> (send self :get-arm-val :larm :grasp) (send self :get-val 'gripper-threshold))
+          (if (> (send self :get-arm-val :larm :grasp) gripper-threshold)
               (send self :start-grasp :larm :wait nil)
               (send self :stop-grasp :larm :wait nil))
-          (if (> (send self :get-arm-val :rarm :grasp) (send self :get-val 'gripper-threshold))
+          (if (> (send self :get-arm-val :rarm :grasp) gripper-threshold)
               (send self :start-grasp :rarm :wait nil)
               (send self :stop-grasp :rarm :wait nil)))
-        (if (and (not data-collection) (send self :get-val 'robot-action)) ;; when imitation, parsing action from topic recieved and execute
+        (if (and (not data-collection) robot-action) ;; when imitation, parsing action from topic recieved and execute
           (send self :parse-robot-action))))
   (:main-loop-step ()
       (send self :button-cb)
@@ -310,10 +307,10 @@
   (:main-loop (&key (imitation nil))
     (send self :update-robot)
     (send self :init-pose)
-    ;; (if imitation ;; TODO
-    ;;     (progn
-    ;;       (ros::ros-info "Imitation control enabled")
-    ;;       (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1)))
+    (if imitation ;; TODO
+        (progn
+          (ros::ros-info "Imitation control enabled")
+          (ros::subscribe robot-action-topic-name eus_imitation::Float32MultiArrayStamped #'(lambda (msg) (send self :set-val 'robot-action (send msg :data))) 1)))
     (while (ros::ok)
       (ros::rate rate) ;; need to set every loop, otherwise it will be too fast. I don't know why.
       (send self :main-loop-step)
