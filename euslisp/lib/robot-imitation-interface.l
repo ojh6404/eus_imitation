@@ -91,14 +91,19 @@
 
     ;; object-centric
    (send self :set-val 'ref-coords nil)
-   (send self :set-val 'ref-pos nil)
-   (send self :set-val 'ref-rot nil)
+   (send self :set-val 'ref-pos #f(0 0 0))
+   (send self :set-val 'ref-rot #f(0 0 0))
     self)
   (:ros-init ()
     (send-super :ros-init)
     (ros::advertise robot-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise robot-larm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise robot-rarm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
+    (ros::advertise "/eus_imitation/data_collector/record" std_msgs::String 1)
+
+    ;; object-centric
+    (if object-centric
+      (ros::advertise "/eus_imitation/object_position" eus_imitation::Float32MultiArrayStamped 1))
     (if data-collection
       (ros::advertise robot-action-topic-name eus_imitation::Float32MultiArrayStamped 1))
     t)
@@ -134,15 +139,17 @@
           (progn
             (if record-p
               (progn
-                ;; (unix:usleep (* 1000 100))
+                (ros::publish "/eus_imitation/data_collector/record" (instance std_msgs::String :init :data "stop"))
+                (unix:usleep (* 1000 100))
                 (ros::ros-info "recording stop")
                 (ros::wait-for-service record-trigger-service-name 1)
                 (setq req (instance std_srvs::TriggerRequest :init))
                 (setq res (ros::service-call record-trigger-service-name req))
                 (send self :set-val 'recording nil))
               (progn
-                ;; (unix:usleep (* 1000 1000))
                 (if object-centric get-ref-coords)
+                (ros::publish "/eus_imitation/data_collector/record" (instance std_msgs::String :init :data "start"))
+                (unix:usleep (* 1000 1000))
                 (ros::ros-info "recording start")
                 (ros::wait-for-service record-trigger-service-name 1)
                 (setq req (instance std_srvs::TriggerRequest :init))
@@ -241,10 +248,16 @@
   (:publish-robot-state ()
     (let ((robot-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
           (robot-larm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
-          (robot-rarm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init)))
+          (robot-rarm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+          (object-position-msg (instance eus_imitation::Float32MultiArrayStamped :init)))
       (send robot-state-msg :data robot-state)
       (send robot-state-msg :header :stamp (ros::time-now))
       (ros::publish robot-state-topic-name robot-state-msg)
+      (if object-centric
+          (progn
+          (send object-position-msg :data (concatenate float-vector (send self :get-val 'ref-pos) (send self :get-val 'ref-rot)))
+          (send object-position-msg :header :stamp (ros::time-now))
+          (ros::publish "/eus_imitation/object_position" object-position-msg)))
       (if (send robot :larm)
           (progn
               (send robot-larm-state-msg :data (concatenate float-vector (send self :get-arm-val :larm :joint-state) (float-vector (send self :get-arm-val :larm :gripper-pos))))

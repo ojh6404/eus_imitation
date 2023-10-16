@@ -1,0 +1,37 @@
+<launch>
+  <arg name="filename" default="fetch_rosbag" />
+
+  <node name="rosbag_record"
+    pkg="rosbag" type="record"
+    args="-b 0
+
+    /tf
+    /tf_static
+
+    /head_camera/rgb/image_rect_color/compressed
+    /head_camera/depth_registered/image_rect/compressedDepth
+    /head_camera/rgb/camera_info
+
+    /tracking_ros/segmentation
+    /tracking_ros/segmentation_image
+    /tracking_ros/segmentor/output/boxes
+    /tracking_ros/segmentor/output/centroid
+
+    /joint_states
+    /eus_imitation/robot_action
+    /eus_imitation/robot_state
+    /eus_imitation/data_collector/record
+    /eus_imitation/object_position
+
+    /spacenav/joy
+    /controller_LHR_FD35BD42/joy
+    /controller_LHR_F7AFBF47/joy
+
+    -O $(arg filename)" output="screen">
+  </node>
+</launch>
+
+    <!-- /tracking_ros/rgb/image_rect_color/compressed -->
+    <!-- /tracking_ros/depth_registered/image_rect -->
+    <!-- /tracking_ros/depth_registered/points -->
+    <!-- /tracking_ros/processed_image/compressed -->

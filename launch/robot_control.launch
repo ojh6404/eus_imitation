@@ -6,6 +6,8 @@
   <arg name="imitation_mode" default="nil"/>
   <arg name="rate" default="10"/>
   <arg name="object_centric" default="t"/>
+  <arg name="record" default="true"/>
+  <arg name="filename" default="$(arg robot)_rosbag"/>
 
   <group ns="$(arg ns)">
     <rosparam command="load" file="$(find eus_imitation)/config/$(arg robot)/init_pose.yaml"/>
@@ -15,4 +17,7 @@
         args="&quot;(main :robot :$(arg robot) :imitation $(arg imitation_mode) :device :$(arg device) :object-centric $(arg object_centric))&quot;" output="screen" />
   <node if="$(eval bool(project))" pkg="eus_imitation" type="rosbag_recorder.py" name="rosbag_recorder" args="$(arg project)" output="screen" />
   <include if="$(eval device=='spacenav')" file="$(find eus_imitation)/launch/device/spacenav.launch" />
+  <include if="$(arg record)" file="$(find eus_imitation)/launch/$(arg robot)_data_recorder.launch">
+    <arg name="filename" value="$(arg filename)"/>
+  </include>
 </launch>
