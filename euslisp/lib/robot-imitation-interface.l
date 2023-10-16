@@ -54,7 +54,12 @@
           av-tm
           av-scale
           min-time
-          init-pose))
+          init-pose
+
+          ;; object-centric
+          ref-coords
+          ref-pos
+          ref-rot))
 
 (defmethod robot-imitation-interface
   (:init  (&rest args)
@@ -83,6 +88,11 @@
    (send self :set-val 'record-trigger-service-name "/eus_imitation/rosbag_record_trigger")
    (send self :set-val 'remove-trigger-service-name "/eus_imitation/rosbag_remove_trigger")
    (send self :reset)
+
+    ;; object-centric
+   (send self :set-val 'ref-coords nil)
+   (send self :set-val 'ref-pos nil)
+   (send self :set-val 'ref-rot nil)
     self)
   (:ros-init ()
     (send-super :ros-init)
@@ -101,6 +111,44 @@
     (send self :set-arm-val arm :target-gripper-pos 0.09)
     (send self :set-arm-val arm :current-end-pos nil)
     (send self :set-arm-val arm :current-end-rpy nil))
+  (:get-ref-coords ()
+    (let* (bbox-msg boxes box)
+        (setq bbox-msg (one-shot-subscribe "/tracking_ros/segmentor/output/boxes"
+                                  jsk_recognition_msgs::BoundingBoxArray
+                                  :timeout (* 10 1000)))
+        (setq boxes (send bbox-msg :boxes))
+        (setq box (if boxes (car boxes)))
+        (send self :set-val 'ref-coords (if box (ros::tf-pose->coords (send box :pose))))
+        (send self :set-val 'ref-pos (if box (send (send self :get-val 'ref-coords) :worldpos)))
+        (send self :set-val 'ref-rot (if box (send (send self :get-val 'ref-coords) :worldrot)))
+        (setq *target-cube* (make-cube (* 1000 (send box :dimensions :x))
+                                        (* 1000 (send box :dimensions :y))
+                                        (* 1000 (send box :dimensions :z))))
+        (send *target-cube* :newcoords (send ref-coords :copy-worldcoords))
+        (objects (list *pr2* *target-cube*))))
+  (:record-cb (&key (button :menu))
+    (let (req res (record-button-p
+            (send self :controller-button-p :rarm button :button-toggle t))
+          (record-p (send self :get-val 'recording)))
+      (if record-button-p
+          (progn
+            (if record-p
+              (progn
+                ;; (unix:usleep (* 1000 100))
+                (ros::ros-info "recording stop")
+                (ros::wait-for-service record-trigger-service-name 1)
+                (setq req (instance std_srvs::TriggerRequest :init))
+                (setq res (ros::service-call record-trigger-service-name req))
+                (send self :set-val 'recording nil))
+              (progn
+                ;; (unix:usleep (* 1000 1000))
+                (if object-centric get-ref-coords)
+                (ros::ros-info "recording start")
+                (ros::wait-for-service record-trigger-service-name 1)
+                (setq req (instance std_srvs::TriggerRequest :init))
+                (setq res (ros::service-call record-trigger-service-name req nil))
+                (send self :set-val 'recording t)))
+            (send self :set-val 'recording (not record-p))))))
 
   (:dump-pose (pose &key (pose-name "init_pose"))
     (let ((package-path (ros::rospack-find "eus_imitation")))
@@ -306,7 +354,9 @@
       (send self :move-robot))
   (:main-loop (&key (imitation nil))
     (send self :update-robot)
-    (send self :init-pose)
+    ;; (send self :init-pose)
+
+
     (if imitation ;; TODO
         (progn
           (ros::ros-info "Imitation control enabled")

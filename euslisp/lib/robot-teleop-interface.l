@@ -11,6 +11,9 @@
 (ros::load-ros-manifest "std_msgs")
 (ros::load-ros-manifest "std_srvs")
 
+;; object-centric
+(ros::roseus-add-msgs "jsk_recognition_msgs")
+
 (defclass robot-teleop-interface
   :super propertied-object
   :slots (;; robot control
@@ -97,15 +100,19 @@
           rarm-left-count
           rarm-right
           rarm-prev-right
-          rarm-right-count))
+          rarm-right-count
+
+          ;; object centric
+          object-centric))
 
 (defmethod robot-teleop-interface
-  (:init  (&key (rate 10) (imitation nil) (device :vive))
+  (:init  (&key (rate 10) (imitation nil) (device :vive) (object-centric nil))
     (send self :set-val 'data-collection (not imitation)) ;; mode
     (send self :set-val 'device device)
     (send self :set-val 'rate rate)
     (send self :set-val 'mirror nil)
     (send self :controller-method device :init)
+    (send self :set-val 'object-centric object-centric)
     self)
   (:ros-init ()
     (send self :controller-method device :ros-init)

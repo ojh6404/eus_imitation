@@ -48,22 +48,34 @@
   ;; NOTE user define
   (:update-robot-action () ;; when data collection
         (send self :set-val 'robot-action
-              (concatenate float-vector
-                  (send self :get-arm-val :rarm :target-end-pos)
-                  (send self :get-arm-val :rarm :target-end-rpy)
-                  (float-vector (send self :get-arm-val :rarm :grasp)))))
+              (if object-centric
+                (concatenate float-vector
+                    (v- (send self :get-arm-val :rarm :target-end-pos) (send self :get-val 'ref-pos))
+                    (send self :get-arm-val :rarm :target-end-rpy) ;; TODO
+                    (float-vector (send self :get-arm-val :rarm :grasp)))
+                (concatenate float-vector
+                    (send self :get-arm-val :rarm :target-end-pos)
+                    (send self :get-arm-val :rarm :target-end-rpy)
+                    (float-vector (send self :get-arm-val :rarm :grasp))))))
   (:update-robot-state ()
-        (send self :set-val 'robot-state ;; you can define agent's state, proprioception
-              (concatenate float-vector ;; concatenate all vectors
-                  (send self :get-arm-val :rarm :current-end-pos)
-                  (send self :get-arm-val :rarm :current-end-rpy)
-                  (float-vector (send self :get-arm-val :rarm :gripper-pos)))))
+        (send self :set-val 'robot-state
+              (if object-centric
+                (concatenate float-vector
+                    (v- (send self :get-arm-val :rarm :current-end-pos) (send self :get-val 'ref-pos))
+                    (send self :get-arm-val :rarm :current-end-rpy)
+                    (float-vector (send self :get-arm-val :rarm :gripper-pos)))
+                (concatenate float-vector
+                    (send self :get-arm-val :rarm :current-end-pos)
+                    (send self :get-arm-val :rarm :current-end-rpy)
+                    (float-vector (send self :get-arm-val :rarm :gripper-pos))))))
   (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
       (let* ((action (send self :get-val 'robot-actoion))
-             (target-end-effector-coords (subseq action 0 3))
+             (target-end-effector-pos (if object-centric
+                                          (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos))
+                                          (subseq action 0 3)))
              (target-end-effector-rpy (subseq action 3 6))
              (gripper-command (elt action 6))
-             (target-end-effector-coords (make-coords :pos target-end-effector-coords :rpy target-end-effector-rpy)))
+             (target-end-effector-coords (make-coords :pos target-end-effector-pos :rpy target-end-effector-rpy)))
         ;; execute action
         (send self :inverse-kinematics :rarm target-end-effector-coords)
         (send self :angle-command-vector :rarm :torso nil)
