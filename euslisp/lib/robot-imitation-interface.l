@@ -61,7 +61,8 @@
           ;; object-centric
           ref-coords
           ref-pos
-          ref-rot))
+          ref-rot
+          end-coords-offset))
 
 (defmethod robot-imitation-interface
   (:init  (&rest args)

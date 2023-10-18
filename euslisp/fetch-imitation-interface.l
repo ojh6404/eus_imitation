@@ -11,6 +11,7 @@
     (send-super* :init args)
     (send self :set-val 'robot *fetch*)
     (send self :set-val 'robot-name "fetch")
+    (send self :set-val 'end-coords-offset #f(0 20 70)) ;; TODO relative to PR2
 
    ;; fetch IK control settings
     (send self :set-val 'ik-stop-step 10)
@@ -69,17 +70,18 @@
                     (send self :get-arm-val :rarm :current-end-rpy)
                     (float-vector (send self :get-arm-val :rarm :gripper-pos))))))
   (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
-      (let* ((action (send self :get-val 'robot-actoion))
-             (target-end-effector-pos (if object-centric
-                                          (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos))
-                                          (subseq action 0 3)))
-             (target-end-effector-rpy (subseq action 3 6))
-             (gripper-command (elt action 6))
-             (target-end-effector-coords (make-coords :pos target-end-effector-pos :rpy target-end-effector-rpy)))
+      (let* ((action (send self :get-val 'robot-action))
+             (rarm-target-end-effector-pos (if object-centric
+                                               ;; (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) #f(0 20 70))
+                                               (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) 'end-coords-offset)
+                                               (subseq action 0 3)))
+             (rarm-target-end-effector-rpy (subseq action 3 6))
+             (rarm-gripper-command (elt action 6))
+             (rarm-target-end-effector-coords (make-coords :pos rarm-target-end-effector-pos :rpy rarm-target-end-effector-rpy)))
         ;; execute action
-        (send self :inverse-kinematics :rarm target-end-effector-coords)
+        (send self :inverse-kinematics :rarm rarm-target-end-effector-coords)
         (send self :angle-command-vector :rarm :torso nil)
-        (if (> gripper-command gripper-threshold)
+        (if (> rarm-gripper-command gripper-threshold)
             (send self :start-grasp :rarm :wait nil)
             (send self :stop-grasp :rarm :wait nil)))))
 
