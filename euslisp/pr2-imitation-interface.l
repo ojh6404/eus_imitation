@@ -70,7 +70,7 @@
                                                (subseq action 0 3)))
              (rarm-target-end-effector-rpy (subseq action 3 6))
              (rarm-gripper-command (elt action 6))
-             (rarm-target-end-effector-coords (make-coords :pos rar-target-end-effector-pos :rpy rarm-target-end-effector-rpy)))
+             (rarm-target-end-effector-coords (make-coords :pos rarm-target-end-effector-pos :rpy rarm-target-end-effector-rpy)))
         ;; execute action
         (send self :inverse-kinematics :rarm rarm-target-end-effector-coords)
         (send self :angle-command-vector :rarm :torso nil)

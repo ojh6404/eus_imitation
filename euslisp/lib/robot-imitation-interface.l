@@ -15,6 +15,8 @@
           robot-state-topic-name
           robot-larm-state-topic-name
           robot-rarm-state-topic-name
+          robot-larm-end-coords-topic-name
+          robot-rarm-end-coords-topic-name
           robot-joint-states-topic-name
           record-trigger-service-name
           remove-trigger-service-name
@@ -84,6 +86,8 @@
    (send self :set-val 'robot-state-topic-name "/eus_imitation/robot_state")
    (send self :set-val 'robot-larm-state-topic-name "/eus_imitation/l_arm_state")
    (send self :set-val 'robot-rarm-state-topic-name "/eus_imitation/r_arm_state")
+   (send self :set-val 'robot-larm-end-coords-topic-name "/eus_imitation/l_arm_end_coords")
+   (send self :set-val 'robot-rarm-end-coords-topic-name "/eus_imitation/r_arm_end_coords")
    (send self :set-val 'robot-joint-states-topic-name "/joint_states")
    (send self :set-val 'record-trigger-service-name "/eus_imitation/rosbag_record_trigger")
    (send self :set-val 'remove-trigger-service-name "/eus_imitation/rosbag_remove_trigger")
@@ -99,6 +103,8 @@
     (ros::advertise robot-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise robot-larm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise robot-rarm-state-topic-name eus_imitation::Float32MultiArrayStamped 1)
+    (ros::advertise robot-larm-end-coords-topic-name eus_imitation::Float32MultiArrayStamped 1)
+    (ros::advertise robot-rarm-end-coords-topic-name eus_imitation::Float32MultiArrayStamped 1)
     (ros::advertise "/eus_imitation/data_collector/record" std_msgs::String 1)
 
     ;; object-centric
@@ -130,7 +136,7 @@
                                         (* 1000 (send box :dimensions :y))
                                         (* 1000 (send box :dimensions :z))))
         (send *target-cube* :newcoords (send ref-coords :copy-worldcoords))
-        (objects (list *pr2* *target-cube*))))
+        (objects (list robot *target-cube*))))
   (:record-cb (&key (button :menu))
     (let (req res (record-button-p
             (send self :controller-button-p :rarm button :button-toggle t))
@@ -147,9 +153,11 @@
                 (setq res (ros::service-call record-trigger-service-name req))
                 (send self :set-val 'recording nil))
               (progn
-                (if object-centric get-ref-coords)
+                (if object-centric (send self :get-ref-coords))
+                (print "test etest etes testes")
+                (print (send self :get-val 'ref-coords))
                 (ros::publish "/eus_imitation/data_collector/record" (instance std_msgs::String :init :data "start"))
-                (unix:usleep (* 1000 1000))
+                (unix:usleep (* 1000 100))
                 (ros::ros-info "recording start")
                 (ros::wait-for-service record-trigger-service-name 1)
                 (setq req (instance std_srvs::TriggerRequest :init))
@@ -249,25 +257,33 @@
     (let ((robot-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
           (robot-larm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
           (robot-rarm-state-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+          (robot-larm-end-coords-msg (instance eus_imitation::Float32MultiArrayStamped :init))
+          (robot-rarm-end-coords-msg (instance eus_imitation::Float32MultiArrayStamped :init))
           (object-position-msg (instance eus_imitation::Float32MultiArrayStamped :init)))
       (send robot-state-msg :data robot-state)
       (send robot-state-msg :header :stamp (ros::time-now))
       (ros::publish robot-state-topic-name robot-state-msg)
       (if object-centric
-          (progn
-          (send object-position-msg :data (concatenate float-vector (send self :get-val 'ref-pos) (send self :get-val 'ref-rot)))
+        (progn
+          (send object-position-msg :data (concatenate float-vector (send self :get-val 'ref-pos) (float-vector 0 0 0))) ;;TODO
           (send object-position-msg :header :stamp (ros::time-now))
           (ros::publish "/eus_imitation/object_position" object-position-msg)))
       (if (send robot :larm)
-          (progn
-              (send robot-larm-state-msg :data (concatenate float-vector (send self :get-arm-val :larm :joint-state) (float-vector (send self :get-arm-val :larm :gripper-pos))))
-              (send robot-larm-state-msg :header :stamp (ros::time-now))
-              (ros::publish robot-larm-state-topic-name robot-larm-state-msg)))
+        (progn
+          (send robot-larm-state-msg :data (concatenate float-vector (send self :get-arm-val :larm :joint-state) (float-vector (send self :get-arm-val :larm :gripper-pos))))
+          (send robot-larm-state-msg :header :stamp (ros::time-now))
+          (send robot-larm-end-coords-msg :data (concatenate float-vector (send self :get-arm-val :larm :current-end-pos) (send self :get-arm-val :larm :current-end-rpy) (float-vector (send self :get-arm-val :larm :gripper-pos))))
+          (send robot-larm-end-coords-msg :header :stamp (ros::time-now))
+          (ros::publish robot-larm-end-coords-topic-name robot-larm-end-coords-msg)
+          (ros::publish robot-larm-state-topic-name robot-larm-state-msg)))
       (if (send robot :rarm)
-          (progn
-              (send robot-rarm-state-msg :data (concatenate float-vector (send self :get-arm-val :rarm :joint-state) (float-vector (send self :get-arm-val :rarm :gripper-pos))))
-              (send robot-rarm-state-msg :header :stamp (ros::time-now))
-              (ros::publish robot-rarm-state-topic-name robot-rarm-state-msg)))))
+        (progn
+          (send robot-rarm-state-msg :data (concatenate float-vector (send self :get-arm-val :rarm :joint-state) (float-vector (send self :get-arm-val :rarm :gripper-pos))))
+          (send robot-rarm-state-msg :header :stamp (ros::time-now))
+          (send robot-rarm-end-coords-msg :data (concatenate float-vector (send self :get-arm-val :rarm :current-end-pos) (send self :get-arm-val :rarm :current-end-rpy) (float-vector (send self :get-arm-val :rarm :gripper-pos))))
+          (send robot-rarm-end-coords-msg :header :stamp (ros::time-now))
+          (ros::publish robot-rarm-end-coords-topic-name robot-rarm-end-coords-msg)
+          (ros::publish robot-rarm-state-topic-name robot-rarm-state-msg)))))
   (:publish-robot-action ()
     (let ((robot-action-msg (instance eus_imitation::Float32MultiArrayStamped :init)))
       (send robot-action-msg :data robot-action)
@@ -367,8 +383,8 @@
       (send self :move-robot))
   (:main-loop (&key (imitation nil))
     (send self :update-robot)
-    ;; (send self :init-pose)
-
+    (send self :init-pose)
+    (if object-centric (send self :get-ref-coords))
 
     (if imitation ;; TODO
         (progn
