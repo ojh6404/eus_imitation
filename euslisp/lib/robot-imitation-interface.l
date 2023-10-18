@@ -129,7 +129,10 @@
                                   jsk_recognition_msgs::BoundingBoxArray
                                   :timeout (* 10 1000)))
         (setq boxes (send bbox-msg :boxes))
-        (setq box (if boxes (car boxes)))
+        (dolist (b boxes)
+          (if (eq (send b :label) 0)
+            (setq box b)))
+        (setq label (if box (send box :label)))
         (send self :set-val 'ref-coords (if box (ros::tf-pose->coords (send box :pose))))
         (send self :set-val 'ref-pos (if box (send (send self :get-val 'ref-coords) :worldpos)))
         (send self :set-val 'ref-rot (if box (send (send self :get-val 'ref-coords) :worldrot)))
