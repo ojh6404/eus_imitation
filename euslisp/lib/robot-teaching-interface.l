@@ -11,7 +11,7 @@
 (ros::load-ros-manifest "std_msgs")
 (ros::load-ros-manifest "std_srvs")
 
-(defclass robot-teleop-interface
+(defclass robot-teaching-interface
   :super propertied-object
   :slots (;; robot control
           device
@@ -99,7 +99,7 @@
           rarm-prev-right
           rarm-right-count))
 
-(defmethod robot-teleop-interface
+(defmethod robot-teaching-interface
   (:init  (&key (rate 10) (imitation nil) (device :vive))
     (send self :set-val 'data-collection (not imitation)) ;; mode
     (send self :set-val 'device device)
@@ -535,4 +535,4 @@
               (send self :calib-controller arm)))
           (send self :set-arm-val arm :enable (not enable-p)))))))
 
-(provide :robot-teleop-interface)
+(provide :robot-teaching-interface)
