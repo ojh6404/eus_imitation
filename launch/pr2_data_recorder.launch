@@ -21,6 +21,8 @@
     /r_gripper_controller/state
     /eus_imitation/robot_action
     /eus_imitation/robot_state
+    /eus_imitation/l_arm_end_coords
+    /eus_imitation/r_arm_end_coords
     /eus_imitation/data_collector/record
     /eus_imitation/object_position
 

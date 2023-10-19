@@ -46,6 +46,16 @@
               torso-av-tm :torso-controller 0
               :min-time torso-min-time :scale torso-av-scale)))
 
+  (:init-pose ()
+    (send self :load-init-pose)
+    (send self :update-robot)
+    (send robot-interface :angle-vector-raw init-pose 3000)
+    (send robot-interface :wait-interpolation)
+    (if (send robot :larm)
+        (send self :stop-grasp :larm :wait t))
+    (if (send robot :rarm)
+        (send self :stop-grasp :rarm :wait t)))
+
   ;; NOTE user define
   (:update-robot-action () ;; when data collection
         (send self :set-val 'robot-action
@@ -72,8 +82,8 @@
   (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
       (let* ((action (send self :get-val 'robot-action))
              (rarm-target-end-effector-pos (if object-centric
-                                               ;; (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) #f(0 20 70))
-                                               (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) 'end-coords-offset)
+                                               (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) #f(-20 -40 80))
+                                               ;; (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) 'end-coords-offset)
                                                (subseq action 0 3)))
              (rarm-target-end-effector-rpy (subseq action 3 6))
              (rarm-gripper-command (elt action 6))
