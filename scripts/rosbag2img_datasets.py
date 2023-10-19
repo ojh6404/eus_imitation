@@ -125,7 +125,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-d", "--rosbag_dir", type=str, required=True, help="path to rosbag directory"
     )
-    parser.add_argument("-obs", "--obs_key", type=str, default="image")
+    parser.add_argument("-obs", "--obs_key", type=str, default="head_image")
     parser.add_argument(
         "-t",
         "--image_tune",

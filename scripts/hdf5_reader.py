@@ -24,18 +24,34 @@ def main(args):
     valid_mask = None
     if "mask" in f.keys():
         if "train" in f["mask"].keys():
-            train_mask = f["mask"]["train"]
-        if "val" in f["mask"].keys():
-            valid_mask = f["mask"]["val"]
+            train_mask = [
+                elem.decode("utf-8")
+                for elem in np.array(
+                    f["mask/{}".format("train")][:]
+                )
+            ]
+        if "valid" in f["mask"].keys():
+            valid_mask = [
+                elem.decode("utf-8")
+                for elem in np.array(
+                    f["mask/{}".format("valid")][:]
+                )
+            ]
 
     print("=============================")
     print("Dataset info")
     print("Total demos: {}".format(len(demos)))
     print("Total trajectories: {}".format(total_traj_length))
     if train_mask is not None:
-        print("Train trajectories: {}".format(np.sum(train_mask)))
+        train_traj = 0
+        for ep in train_mask:
+            train_traj += f["data/{}".format(ep)]["actions"].shape[0]
+        print("Train trajectories: {}".format(train_traj))
     if valid_mask is not None:
-        print("Valid trajectories: {}".format(np.sum(valid_mask)))
+        valid_traj = 0
+        for ep in valid_mask:
+            valid_traj += f["data/{}".format(ep)]["actions"].shape[0]
+        print("Valid trajectories: {}".format(valid_traj))
     print("Trajectory length mean: {}".format(np.mean(traj_lengths)))
     print("Trajectory length std: {}".format(np.std(traj_lengths)))
     print("Trajectory length min: {}".format(np.min(traj_lengths)))
