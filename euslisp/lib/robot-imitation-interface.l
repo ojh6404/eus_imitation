@@ -1,8 +1,8 @@
 #!/usr/bin/env roseus
-(require :robot-teleop-interface "package://eus_imitation/euslisp/lib/robot-teleop-interface.l")
+(require :robot-teaching-interface "package://eus_imitation/euslisp/lib/robot-teaching-interface.l")
 
 (defclass robot-imitation-interface
-  :super robot-teleop-interface
+  :super robot-teaching-interface
   :slots (;; eus interface
           robot
           robot-interface

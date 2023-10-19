@@ -11,10 +11,14 @@
 (ros::load-ros-manifest "std_msgs")
 (ros::load-ros-manifest "std_srvs")
 
+<<<<<<< HEAD:euslisp/lib/robot-teleop-interface.l
 ;; object-centric
 (ros::roseus-add-msgs "jsk_recognition_msgs")
 
 (defclass robot-teleop-interface
+=======
+(defclass robot-teaching-interface
+>>>>>>> master:euslisp/lib/robot-teaching-interface.l
   :super propertied-object
   :slots (;; robot control
           device
@@ -105,8 +109,13 @@
           ;; object centric
           object-centric))
 
+<<<<<<< HEAD:euslisp/lib/robot-teleop-interface.l
 (defmethod robot-teleop-interface
   (:init  (&key (rate 10) (imitation nil) (device :vive) (object-centric nil))
+=======
+(defmethod robot-teaching-interface
+  (:init  (&key (rate 10) (imitation nil) (device :vive))
+>>>>>>> master:euslisp/lib/robot-teaching-interface.l
     (send self :set-val 'data-collection (not imitation)) ;; mode
     (send self :set-val 'device device)
     (send self :set-val 'rate rate)
@@ -549,4 +558,4 @@
               (send self :calib-controller arm)))
           (send self :set-arm-val arm :enable (not enable-p)))))))
 
-(provide :robot-teleop-interface)
+(provide :robot-teaching-interface)
