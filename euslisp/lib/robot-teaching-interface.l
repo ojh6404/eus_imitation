@@ -30,10 +30,10 @@
           larm-enable-p
           rarm-enable-p
           data-collection
-          gripper-threshold
           pos-scale
           rot-scale
           mirror
+          gripper-threshold
 
           ;; vive controller
           vrbase-device-id

@@ -44,12 +44,11 @@
           rarm-target-end-pos
           larm-target-end-rpy
           rarm-target-end-rpy
-          larm-target-gripper-pos
-          rarm-target-gripper-pos
           larm-target-linear-velocity
           larm-target-angular-velocity
           rarm-target-linear-velocity
           rarm-target-angular-velocity
+          gripper-pos-scale
 
           ;; IK and pose
           ik-stop-step
@@ -80,6 +79,7 @@
    (send self :set-val 'av-scale 5.0)
    (send self :set-val 'min-time 0.3)
    (send self :set-val 'gripper-threshold 0.5)
+   (send self :set-val 'gripper-pos-scale 1.0)
 
    ;; ROS
    (send self :set-val 'node-name "eus_imitation")
@@ -120,7 +120,6 @@
     (send self :set-arm-val arm :grasp 0)
     (send self :set-arm-val arm :current-end-coords nil)
     (send self :set-arm-val arm :gripper-pos 0)
-    (send self :set-arm-val arm :target-gripper-pos 0.09)
     (send self :set-arm-val arm :current-end-pos nil)
     (send self :set-arm-val arm :current-end-rpy nil))
   (:get-ref-coords ()
@@ -158,8 +157,6 @@
                 (send self :set-val 'recording nil))
               (progn
                 (if object-centric (send self :get-ref-coords))
-                (print "test etest etes testes")
-                (print (send self :get-val 'ref-coords))
                 (ros::publish "/eus_imitation/data_collector/record" (instance std_msgs::String :init :data "start"))
                 (unix:usleep (* 1000 100))
                 (ros::ros-info "recording start")
@@ -235,10 +232,10 @@
   (:update-current-gripper-pos ()
         (if (send robot :larm)
             (send self :set-arm-val :larm :gripper-pos
-                    (send robot-interface :gripper :larm :position)))
+                    (/ (send robot-interface :gripper :larm :position) gripper-pos-scale)))
         (if (send robot :rarm)
             (send self :set-arm-val :rarm :gripper-pos
-                    (send robot-interface :gripper :rarm :position))))
+                    (/ (send robot-interface :gripper :rarm :position) gripper-pos-scale))))
   (:update-current-joint-state ()
         (if (send robot :larm)
             (send self :set-arm-val :larm :joint-state
@@ -339,18 +336,6 @@
      (send robot-interface :start-grasp arm :wait wait))
   (:stop-grasp (arm &key (wait nil))
      (send robot-interface :stop-grasp arm :wait wait))
-  (:move-gripper (arm pos &key (delta nil) (g 0.01) (wait nil) ) ;; open : pos-abs=0.0, close : pos-abs=0.09
-      (let (current-pos scaled-current-pos target-pos )
-        (if delta
-          (progn
-            (setq current-pos (send self :get-arm-val arm :gripper-pos))
-            (setq scaled-current-pos (* current-pos (/ 0.09 81.7714))) ;; TODO this is for PR2
-            (setq target-pos (+ scaled-current-pos pos)))
-          (setq target-pos pos))
-        (if (> target-pos 0.09) (setq target-pos 0.09))
-        (if (< target-pos 0.0) (setq target-pos 0.0))
-        (send self :set-arm-val arm :target-gripper-pos target-pos)
-        (send robot-interface :move-gripper arm target-pos :effort (* 2000 g) :wait wait)))
   (:update-robot-action () ;; when data collection
     (ros::ros-error ":update-robot-action should be defined by user."))
   (:update-robot-state ()

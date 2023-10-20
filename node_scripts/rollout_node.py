@@ -121,7 +121,7 @@ class ROSRollout(RolloutBase):
         self.inference_start = time.time()
 
         pred_action = self.rollout(processed_obs)
-        if self.debug:
+        if self.verbose:
             print(
                 "running count: ",
                 self.running_cnt,
@@ -129,7 +129,6 @@ class ROSRollout(RolloutBase):
                 time.time() - self.inference_start,
             )
             print("pred action: ", pred_action.tolist())
-            print("real action: ", list(msgs[-1].data))
 
     # def process_obs(self, obs: Dict[str, Any]) -> Dict[str, Any]:
     #     return obs
@@ -177,6 +176,7 @@ if __name__ == "__main__":
     parser.add_argument("-pn", "--project_name", type=str)
     parser.add_argument("-ckpt", "--checkpoint", type=str)
     parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("-v", "--verbose", action="store_true", default=False)
     args = parser.parse_args()
 
     if args.checkpoint is None:
