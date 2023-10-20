@@ -34,6 +34,7 @@ class ROSRollout(RolloutBase):
             self.topic_names.append(cfg.obs[key].topic_name)
 
         self.debug = cfg.ros.debug
+        self.verbose = cfg.ros.verbose
 
         self.ros_init()
         self.image_tuner = HSVBlurCropResolFilter.from_yaml(
@@ -186,6 +187,7 @@ if __name__ == "__main__":
     config.network.policy.checkpoint = args.checkpoint
     config.project_name = args.project_name
     config.ros.debug = args.debug
+    config.ros.verbose = args.verbose
 
     rospy.loginfo("RolloutNode start")
     policy_running_node = ROSRollout(config)
