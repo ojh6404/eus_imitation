@@ -29,7 +29,7 @@
      (if (send robot :rarm)
          (send self :set-arm-val :rarm :gripper-pos
                (if (send robot-interface :gripper :position)
-                   (send robot-interface :gripper :position)
+                   (/ (send robot-interface :gripper :position) gripper-pos-scale)
                    0.0))))
   (:inverse-kinematics (arm target-coords &rest args)
     (send* robot arm :inverse-kinematics target-coords
@@ -41,7 +41,7 @@
   (:angle-vector (&rest args)
     (send* robot-interface :angle-vector-raw args))
   (:angle-command-vector (arm &key (torso nil))
-      (send self :angle-vector (send robot :angle-vector) av-tm)
+      (send self :angle-vector (send robot :angle-vector) av-tm :arm-controller)
       (if torso
         (send self :angle-vector (send robot :angle-vector)
               torso-av-tm :torso-controller 0
@@ -83,7 +83,7 @@
   (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
       (let* ((action (send self :get-val 'robot-action))
              (rarm-target-end-effector-pos (if object-centric
-                                               (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) #f(-20 -40 80))
+                                               (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) #f(10 0 50))
                                                ;; (v+ (v+ (coerce (subseq action 0 3) float-vector) (send self :get-val 'ref-pos)) 'end-coords-offset)
                                                (subseq action 0 3)))
              (rarm-target-end-effector-rpy (subseq action 3 6))
