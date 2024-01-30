@@ -16,6 +16,7 @@
   :slots (;; robot control
           device
           rate
+          tfl
           control-arm
           larm-enable
           rarm-enable
@@ -66,7 +67,6 @@
           rarm-grip
           rarm-prev-grip
           rarm-grip-count
-          tfl
           vrbase-frame-id
           larm-tf-vrbase->controllerref
           larm-tf-base->gripperref
@@ -77,7 +77,7 @@
           rarm-tf-controllerref->controller
           rarm-tf-gripperref->gripper
 
-          ;; for spacenav controller
+          ;; spacenav controller
           spacenav-joy-topic-name
           spacenav-joy-axes-threshold
 
@@ -97,7 +97,37 @@
           rarm-left-count
           rarm-right
           rarm-prev-right
-          rarm-right-count))
+          rarm-right-count
+
+          ;; rogik controller
+          larm-rogik-device-id
+          rarm-rogik-device-id
+          larm-rogik-frame-id
+          rarm-rogik-frame-id
+          blue-wait-count
+          red-wait-count
+          display-wait-count
+          larm-blue
+          larm-prev-blue
+          larm-blue-count
+          larm-red
+          larm-prev-red
+          larm-red-count
+          larm-display
+          larm-prev-display
+          larm-display-count
+          rarm-blue
+          rarm-prev-blue
+          rarm-blue-count
+          rarm-red
+          rarm-prev-red
+          rarm-red-count
+          rarm-display
+          rarm-prev-display
+          rarm-display-count
+          base-frame-id
+          larm-tf-base->rogik
+          rarm-tf-base->rogik))
 
 (defmethod robot-teaching-interface
   (:init  (&key (rate 10) (imitation nil) (device :vive))
@@ -215,7 +245,7 @@
             (send self :reset)
             (send self :update-robot)
             (ros::ros-info "Initiailized")))))
-  (:gripper-cb (arm &key (wait nil) (button :trigger))
+  (:gripper-cb (arm &key (wait nil) (button :trigger)) ;; TODO, when 2 button, open/close gripper. do nothing when buttons are not pressed
     (if (send self :get-arm-val arm button) ;; NOTE controller-button-p is not used cause it is not toggle
         (send self :set-arm-val arm :grasp 1) ;;  we can set this t or nil but in case of use of this variable as state
         (send self :set-arm-val arm :grasp 0)))
@@ -286,7 +316,7 @@
                                   (send self :get-arm-val :larm :controller-frame-id))
                           sensor_msgs::Joy #'send self :vive-controller-cb :larm)
           (ros::ros-info "Detected left arm controller device ID :  ~A" larm-controller-device-id))
-        (ros::ros-warn "param: /eus_vive/l_controller_id is not set"))
+        (ros::ros-warn "param: /eus_imitation/l_controller_id is not set"))
       (if rarm-controller-device-id
         (progn
           (send self :set-arm-val :rarm :controller-frame-id
@@ -295,7 +325,7 @@
                                   (send self :get-arm-val :rarm :controller-frame-id))
                           sensor_msgs::Joy #'send self :vive-controller-cb :rarm)
           (ros::ros-info "Detected right arm controller device ID :  ~A" rarm-controller-device-id))
-        (ros::ros-warn "param: /eus_vive/r_controller_id is not set"))
+        (ros::ros-warn "param: /eus_imitation/r_controller_id is not set"))
     t)
   (:vive-reset-arm-val (arm)
     (send self :set-arm-val arm :trigger nil)
@@ -319,6 +349,12 @@
             (send self :set-arm-val :larm :tf-vrbase->controllerref (make-coords
                                               :pos (send (send self :get-vrbase->controller-coords :larm) :pos)
                                               :rot (send (send self :get-vrbase->controller-coords :larm) :rot)))
+            (send self :set-arm-val :rarm :tf-base->gripperref (make-coords
+                                                :pos (send (send self :get-arm-val :rarm :current-end-coords) :pos)
+                                                :rot (send (send self :get-arm-val :rarm :current-end-coords) :rot)))
+            (send self :set-arm-val :rarm :tf-vrbase->controllerref (make-coords
+                                              :pos (send (send self :get-vrbase->controller-coords :rarm) :pos)
+                                              :rot (send (send self :get-vrbase->controller-coords :rarm) :rot)))
             (send self :set-arm-val :rarm :tf-base->gripperref (make-coords
                                                 :pos (send (send self :get-arm-val :rarm :current-end-coords) :pos)
                                                 :rot (send (send self :get-arm-val :rarm :current-end-coords) :rot))))
@@ -379,24 +415,16 @@
               (ros::ros-info "arm: ~A starting" arm)
               (send self :calib-controller arm)))
           (send self :set-arm-val arm :enable (not enable-p))))))
-  (:get-vrbase->controller-coords (arm &key (wait-trigger nil) (wait-time 0.1))
+  (:get-vrbase->controller-coords (arm &key (wait-time 0.1))
     (let ((controller-frame-id (send self :get-arm-val arm :controller-frame-id))
           (start-time (ros::time 0))
-          coords controller-trigger-button-p)
+          coords)
       (if (or (null vrbase-frame-id) (null controller-frame-id))
         (progn
           (ros::ros-warn "Frame ids are not set properly.")
           (ros::ros-warn "vrbase-frame-id: ~A" vrbase-frame-id)
           (ros::ros-warn "controller-frame-id: ~A" controller-frame-id)
           (return-from :get-vrbase->controller-coords nil)))
-      (if wait-trigger
-        (progn
-          (ros::ros-info "Waiting for trigger: ~A~%" (string-downcase arm))
-          (while (and (ros::ok) (not controller-trigger-button-p))
-            (setq controller-trigger-button-p
-                  (send self :controller-trigger-button-p arm :button-toggle t))
-            (ros::spin-once)
-            (ros::sleep))))
       (send tfl :wait-for-transform vrbase-frame-id controller-frame-id start-time wait-time)
       (setq coords (send tfl :lookup-transform vrbase-frame-id controller-frame-id start-time))
       coords))
@@ -497,7 +525,7 @@
            (target-angular-velocity (scale angular-scale (coerce (subseq (send self :get-arm-val arm :spacenav-joy-axes) 3 6) float-vector))))
       (send self :set-arm-val arm :target-linear-velocity target-linear-velocity)
       (send self :set-arm-val arm :target-angular-velocity target-angular-velocity)))
-  (:spacenav-loop-enable-arm (arm &key (mirror nil) (button :trackpad))
+  (:spacenav-loop-enable-arm (arm &key (mirror nil) (button :right))
     (let (req res
             (enable-button-p
                 (send self :controller-button-p
@@ -533,6 +561,121 @@
               (send self :set-val 'recording t)
               (ros::ros-info "arm: ~A starting" arm)
               (send self :calib-controller arm)))
-          (send self :set-arm-val arm :enable (not enable-p)))))))
+          (send self :set-arm-val arm :enable (not enable-p))))))
+
+  ;; rogik controller
+  (:rogik-init ()
+    (send self :set-val 'pos-scale 1.0)
+    (send self :set-val 'rot-scale 1.0)
+    (send self :set-val 'tfl (instance ros::transform-listener :init))
+    (send self :set-val 'base-frame-id "base_footprint")
+    (send self :set-arm-val :larm :rogik-device-id
+     (ros::get-param "/eus_imitation/l_rogik_id"))
+    (send self :set-arm-val :rarm :rogik-device-id
+     (ros::get-param "/eus_imitation/r_rogik_id"))
+    (send self :set-val 'recording nil)
+    (send self :set-val 'blue-wait-count 5)
+    (send self :set-val 'red-wait-count 5)
+    (send self :set-val 'display-wait-count 5))
+  (:rogik-ros-init ()
+      (if larm-rogik-device-id
+        (progn
+          (send self :set-arm-val :larm :rogik-frame-id
+                (format nil "rogik_~A" larm-rogik-device-id))
+          (ros::subscribe (format nil "/~A/joy"
+                                  (send self :get-arm-val :larm :rogik-frame-id))
+                          sensor_msgs::Joy #'send self :rogik-controller-cb :larm)
+          (ros::ros-info "Detected left arm rogik device ID :  ~A" larm-rogik-device-id))
+        (ros::ros-warn "param: /eus_imitation/l_rogik_id is not set"))
+      (if rarm-rogik-device-id
+        (progn
+          (send self :set-arm-val :rarm :rogik-frame-id
+                (format nil "rogik_~A" rarm-rogik-device-id))
+          (ros::subscribe (format nil "/~A/joy"
+                                  (send self :get-arm-val :rarm :rogik-frame-id))
+                          sensor_msgs::Joy #'send self :rogik-controller-cb :rarm)
+          (ros::ros-info "Detected right arm rogik device ID :  ~A" rarm-rogik-device-id))
+        (ros::ros-warn "param: /eus_imitation/r_rogik_id is not set"))
+    t)
+  (:rogik-reset-arm-val (arm)
+    (send self :set-arm-val arm :blue nil)
+    (send self :set-arm-val arm :prev-blue nil)
+    (send self :set-arm-val arm :blue-count 0)
+    (send self :set-arm-val arm :red nil)
+    (send self :set-arm-val arm :prev-red nil)
+    (send self :set-arm-val arm :red-count 0)
+    (send self :set-arm-val arm :display nil)
+    (send self :set-arm-val arm :prev-display nil)
+    (send self :set-arm-val arm :display-count 0))
+  (:rogik-calib-controller (arm)
+    (ros::ros-info "Calibrating controller ~A" arm)
+    (send self :update-robot))
+  (:rogik-get-target-coords (arm &key (pos-scale 1.0) (rot-scale 1.0))
+    (let* ((target-coords (send self :get-base->gripper-coords arm)))
+          (send self :set-arm-val arm :target-coords target-coords)
+          (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
+          (send self :set-arm-val arm :target-end-rpy  (coerce (elt (rpy-angle (send target-coords :worldrot)) 0) float-vector))
+      target-coords))
+  (:rogik-controller-cb (arm msg) ;; NOTE no axes because it is not used
+        (send self :set-arm-val arm :prev-blue (send self :get-arm-val arm :blue))
+        (send self :set-arm-val arm :prev-red (send self :get-arm-val arm :red))
+        (send self :set-arm-val arm :prev-display (send self :get-arm-val arm :display))
+        (send self :set-arm-val arm :blue (> (elt (send msg :buttons) 0) 0))
+        (send self :set-arm-val arm :red (> (elt (send msg :buttons) 1) 0))
+        (send self :set-arm-val arm :display (> (elt (send msg :buttons) 2) 0)))
+  (:rogik-button-cb ()
+    (send self :enable-cb :larm :mirror nil :button :display) ;; check trackpad button to enable/disable arm
+    (send self :enable-cb :rarm :mirror nil :button :display) ;; check trackpad button to enable/disable arm
+    (send self :gripper-cb :larm :wait nil :button :blue) ;; check trigger button to close gripper
+    (send self :gripper-cb :rarm :wait nil :button :blue) ;; check trigger button to close gripper
+    (send self :record-cb :button :display) ;; check menu button to start/stop recording
+    (send self :remove-cb :button :display) ;; check menu button to remove rosbag recording
+    (send self :init-cb :larm :button :display) ;; check grip button to initialize robot
+    (send self :init-cb :rarm :button :display))
+  (:rogik-loop-enable-arm (arm &key (mirror nil) (button :display))
+    (let ((enable-button-p
+            (send self :controller-button-p
+                  (if mirror (send self :get-opposite-arm arm) arm) button
+                  :button-toggle t))
+          (enable-p (send self :get-arm-val arm :enable)))
+      (if enable-button-p
+        (progn
+          (if enable-p
+            (progn
+              (send robot-interface :cancel-angle-vector
+                    :controller-type (send self :get-arm-controller arm))
+              (if (find-method robot-interface :torso-controller)
+                (send robot-interface :cancel-angle-vector :controller-type :torso-controller))
+              (ros::ros-info "arm: ~A stopping" arm))
+            (progn
+              (send self :update-robot)
+              (ros::ros-info "arm: ~A starting" arm)
+              (send self :calib-controller arm)))
+          (send self :set-arm-val arm :enable (not enable-p))))))
+  (:get-base->gripper-coords (arm &key (wait-time 0.1))
+    (let ((rogik-frame-id (send self :get-arm-val arm :rogik-frame-id))
+          (start-time (ros::time 0))
+          coords)
+      (if (or (null base-frame-id) (null rogik-frame-id))
+        (progn
+          (ros::ros-warn "Frame ids are not set properly.")
+          (ros::ros-warn "base-frame-id: ~A" base-frame-id)
+          (ros::ros-warn "rogik-frame-id: ~A" rogik-frame-id)
+          (return-from :get-base->rogik-coords nil)))
+      (send tfl :wait-for-transform base-frame-id rogik-frame-id start-time wait-time)
+      (setq coords (send tfl :lookup-transform base-frame-id rogik-frame-id start-time))
+      coords))
+  (:controller-blue-button-p (arm &key (button-toggle t))
+    (send self :controller-button-common-p
+          (if (eq arm :larm) 'larm-blue 'rarm-blue)
+          :button-toggle button-toggle))
+  (:controller-red-button-p (arm &key (button-toggle t))
+    (send self :controller-button-common-p
+          (if (eq arm :larm) 'larm-red 'rarm-red)
+          :button-toggle button-toggle))
+  (:controller-display-button-p (arm &key (button-toggle t))
+    (send self :controller-button-common-p
+          (if (eq arm :larm) 'larm-display 'rarm-display)
+          :button-toggle button-toggle)))
 
 (provide :robot-teaching-interface)
