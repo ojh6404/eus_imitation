@@ -2,7 +2,7 @@
 <package format="2">
   <name>eus_imitation</name>
   <version>0.0.10</version>
-  <description>The Imiation Learning Package for Euslisp Interface</description>
+  <description>Robot teaching and imitation project for euslisp interface</description>
 
   <maintainer email="oh@jsk.imi.i.u-tokyo.ac.jp">Jihoon Oh</maintainer>
   <author email="oh@jsk.imi.i.u-tokyo.ac.jp">Jihoon Oh</author>
@@ -12,13 +12,10 @@
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>message_generation</build_depend>
   <build_depend>std_msgs</build_depend>
-  <build_depend>catkin_virtualenv</build_depend>
 
   <exec_depend>actionlib_msgs</exec_depend>
   <exec_depend>baxter_core_msgs</exec_depend>
   <exec_depend>baxtereus</exec_depend>
-  <exec_depend>influxdb_store</exec_depend>
-  <exec_depend>jsk_interactive_marker</exec_depend>
   <exec_depend>jsk_topic_tools</exec_depend>
   <exec_depend>message_runtime</exec_depend>
   <exec_depend>pr2eus</exec_depend>
