@@ -581,18 +581,18 @@
       (if larm-rogik-device-id
         (progn
           (send self :set-arm-val :larm :rogik-frame-id
-                (format nil "rogik_~A" larm-rogik-device-id))
-          (ros::subscribe (format nil "/~A/joy"
-                                  (send self :get-arm-val :larm :rogik-frame-id))
+                (format nil "rogik_~A_frame" larm-rogik-device-id))
+          (ros::subscribe (format nil "/rogik_~A/joy"
+                                  (send self :get-arm-val :larm :rogik-device-id))
                           sensor_msgs::Joy #'send self :rogik-controller-cb :larm)
           (ros::ros-info "Detected left arm rogik device ID :  ~A" larm-rogik-device-id))
         (ros::ros-warn "param: /eus_imitation/l_rogik_id is not set"))
       (if rarm-rogik-device-id
         (progn
           (send self :set-arm-val :rarm :rogik-frame-id
-                (format nil "rogik_~A" rarm-rogik-device-id))
-          (ros::subscribe (format nil "/~A/joy"
-                                  (send self :get-arm-val :rarm :rogik-frame-id))
+                (format nil "rogik_~A_frame" rarm-rogik-device-id))
+          (ros::subscribe (format nil "/rogik_~A/joy"
+                                  (send self :get-arm-val :rarm :rogik-device-id))
                           sensor_msgs::Joy #'send self :rogik-controller-cb :rarm)
           (ros::ros-info "Detected right arm rogik device ID :  ~A" rarm-rogik-device-id))
         (ros::ros-warn "param: /eus_imitation/r_rogik_id is not set"))
@@ -628,10 +628,11 @@
     (send self :enable-cb :rarm :mirror nil :button :display) ;; check trackpad button to enable/disable arm
     (send self :gripper-cb :larm :wait nil :button :blue) ;; check trigger button to close gripper
     (send self :gripper-cb :rarm :wait nil :button :blue) ;; check trigger button to close gripper
-    (send self :record-cb :button :display) ;; check menu button to start/stop recording
-    (send self :remove-cb :button :display) ;; check menu button to remove rosbag recording
-    (send self :init-cb :larm :button :display) ;; check grip button to initialize robot
-    (send self :init-cb :rarm :button :display))
+    ;; TODO
+    ;; (send self :record-cb :button :display) ;; check menu button to start/stop recording
+    ;; (send self :remove-cb :button :display) ;; check menu button to remove rosbag recording
+    (send self :init-cb :larm :button :red) ;; check grip button to initialize robot
+    (send self :init-cb :rarm :button :red))
   (:rogik-loop-enable-arm (arm &key (mirror nil) (button :display))
     (let ((enable-button-p
             (send self :controller-button-p
