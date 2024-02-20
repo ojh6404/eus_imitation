@@ -1,7 +1,7 @@
 <launch>
+  <arg name="ns" default="eus_imitation" />
   <arg name="project" default="false"/>
   <arg name="robot" default="pr2" />
-  <arg name="ns" default="eus_imitation" />
   <arg name="device" default="vive" />
   <arg name="imitation_mode" default="nil"/>
   <arg name="rate" default="10"/>
@@ -14,4 +14,7 @@
         args="&quot;(main :robot :$(arg robot) :imitation $(arg imitation_mode) :device :$(arg device))&quot;" output="screen" />
   <node if="$(eval bool(project))" pkg="eus_imitation" type="rosbag_recorder.py" name="rosbag_recorder" args="$(arg project)" output="screen" />
   <include if="$(eval device=='spacenav')" file="$(find eus_imitation)/launch/device/spacenav.launch" />
+  <group if="$(eval device=='rogik')">
+    <include file="$(find rogik_ros)/launch/rogik_gripper.launch" />
+  </group>
 </launch>
