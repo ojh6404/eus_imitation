@@ -647,7 +647,7 @@
         (send self :set-arm-val arm :rogik-joint-state (elt (send msg :position) 0)))
   (:rogik-button-cb ()
     ;; maybe it does not need
-    ;; (send self :enable-cb :larm :mirror nil :button :display) ;; check trackpad button to enable/disable arm
+    (send self :enable-cb :larm :mirror nil :button :red) ;; check trackpad button to enable/disable arm
     (send self :enable-cb :rarm :mirror nil :button :red) ;; check trackpad button to enable/disable arm
     (send self :gripper-cb :larm :wait nil :button :blue) ;; check trigger button to close gripper
     (send self :gripper-cb :rarm :wait nil :button :blue) ;; check trigger button to close gripper
