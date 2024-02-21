@@ -11,6 +11,7 @@
     (send-super* :init args)
     (send self :set-val 'robot *pr2*)
     (send self :set-val 'robot-name "pr2")
+    (send self :set-val 'base-frame-id "base_footprint")
 
    ;; PR2 IK control settings
     (send self :set-val 'ik-stop-step 10)

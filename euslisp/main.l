@@ -32,6 +32,7 @@
   (setq *imitator* (instance kinova-imitation-interface :init :imitation imitation :device device))
   (send *imitator* :ros-init))
 
+;; :robot (:pr2, :fetch, :baxter, :kinova) :imitation (t or nil) :device (:vive ,:spacenav, :rogik)
 (defun main (&key (robot :pr2) (imitation nil) (device :vive))
   (cond ((eq robot :pr2)
          (init-pr2-imitator :imitation imitation :device device))

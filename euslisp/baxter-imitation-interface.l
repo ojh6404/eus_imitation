@@ -11,6 +11,7 @@
     (send-super* :init args)
     (send self :set-val 'robot *baxter*)
     (send self :set-val 'robot-name "baxter")
+    (send self :set-val 'base-frame-id "base")
 
    ;; Baxter IK control settings
     (send self :set-val 'ik-stop-step 10)
