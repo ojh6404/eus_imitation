@@ -1,0 +1,10 @@
+numpy
+tqdm
+opencv-python
+pyyaml
+h5py
+torch
+torchvision
+einops
+transformers
+git+https://github.com/ojh6404/imitator.git
