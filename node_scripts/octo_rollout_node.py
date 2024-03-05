@@ -6,23 +6,43 @@ from collections import OrderedDict
 
 import numpy as np
 from tunable_filter.composite_zoo import HSVBlurCropResolFilter
+import jax
 
 import rospy
 import message_filters
 from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
-
 from imitator.utils import file_utils as FileUtils
-from imitator.utils.env_utils import RolloutBase
 from eus_imitation.msg import Float32MultiArrayStamped
 
-class ROSRollout(RolloutBase):
-    """
-    Wrapper class for rollout in ROS
-    """
+from octo.model.octo_model import OctoModel
 
+
+class OctoROSRollout(object):
     def __init__(self, cfg: Dict[str, Any]) -> None:
-        super(ROSRollout, self).__init__(cfg)
+        super(OctoROSRollout, self).__init__()
+        print("loading model...")
+        model = OctoModel.load_pretrained(cfg.checkpoint_path, cfg.checkpoint_step)
+        print("loaded model.")
+        self.act_stats = model.dataset_statistics["action"]
+        self.proprio_stats = model.dataset_statistics["proprio"]
+        self.policy_fn = jax.jit(model.sample_actions)
+        self.model = model
+
+        self.instruction = cfg.task.language_instruction
+        self.task = self.model.create_tasks(texts=[self.instruction])
+
+        self.index = 0
+        self.update_interval = 1
+
+        self.cfg = cfg
+        self.obs_keys = list(cfg.obs.keys())
+        self.image_obs = [
+            obs_key
+            for obs_key in self.obs_keys
+            if cfg.obs[obs_key].modality == "ImageModality"
+        ]
+
         self.image_tuner = HSVBlurCropResolFilter.from_yaml(
             os.path.join(
                 FileUtils.get_config_folder(cfg.project_name), "image_filter.yaml"
@@ -69,23 +89,36 @@ class ROSRollout(RolloutBase):
         )
         self.obs_ts.registerCallback(self.obs_callback)
 
-    def rollout(self, obs: Dict[str, Any]) -> None:
-        pred_action = super(ROSRollout, self).rollout(obs)
-        action_msg = Float32MultiArrayStamped()
-        action_msg.header.stamp = rospy.Time.now()
-        action_msg.data = pred_action.tolist()
-        self.pub_action.publish(action_msg)
-        return pred_action
+    def rollout(self, obs_dict: Dict[str, Any]) -> None:
+        proprio = obs_dict["proprio"]
+        proprio = (proprio - self.proprio_stats["mean"]) / (
+            self.proprio_stats["std"] + 1e-8
+        )
+        head_image = obs_dict["head_image"]
+
+        obs = {
+            "image_primary": head_image[None, None],
+            "proprio": proprio[None, None],
+            "pad_mask": np.asarray([[True]]),
+        }
+
+        if self.index % self.update_interval == 0:
+            actions = self.policy_fn(
+                jax.tree_map(lambda x: x, obs), self.task, rng=jax.random.PRNGKey(0)
+            )
+            self.actions = actions
+
+        idx = self.index % self.update_interval
+        action = self.actions[0, idx] * self.act_stats["std"] + self.act_stats["mean"]
+        action = np.clip(action, self.act_stats["min"], self.act_stats["max"])
+
+        self.index += 1
+        return action, False
 
     def reset(self):
-        super(ROSRollout, self).reset()
-        if self.cfg.network.policy.actor_type == "RNNActor":
-            self.rnn_state = self.model.get_rnn_init_state(
-                batch_size=1, device=self.device
-            )
+        self.index = 0
 
     def obs_callback(self, *msgs) -> None:
-        # parse msgs into input obs
         processed_obs = OrderedDict()
         for key, msg in zip(self.obs_keys, msgs):
             if self.cfg.obs[key].msg_type == "Image":
@@ -102,17 +135,21 @@ class ROSRollout(RolloutBase):
                 raise NotImplementedError
 
         self.inference_start = time.time()
-        pred_action = self.rollout(processed_obs)
+        pred_action, _ = self.rollout(processed_obs)
         if self.debug:
-            print("=====================================================")
             print(
-                "running count: {}, callback time: {}".format(
-                    self.index, time.time() - self.inference_start
-                )
+                "running count: ",
+                self.index,
+                "callback time: ",
+                time.time() - self.inference_start,
             )
-            print("pred action: {}".format(pred_action.tolist()))
-            print("real action: {}".format(list(msgs[-1].data)))
-            print("=====================================================")
+            print("pred action: ", pred_action)
+            print("real action: ", list(msgs[-1].data))
+        else:
+            action_msg = Float32MultiArrayStamped()
+            action_msg.header.stamp = rospy.Time.now()
+            action_msg.data = pred_action.tolist()
+            self.pub_action.publish(action_msg)
 
 
 if __name__ == "__main__":
@@ -137,5 +174,5 @@ if __name__ == "__main__":
 
     rospy.init_node("rollout_node")
     rospy.loginfo("RolloutNode start")
-    policy_running_node = ROSRollout(config)
+    policy_running_node = OctoROSRollout(config)
     rospy.spin()

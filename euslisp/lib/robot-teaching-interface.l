@@ -20,7 +20,7 @@
           control-arm
           larm-enable
           rarm-enable
-          torse-enable-p ;; TODO
+          torso-enable-p ;; TODO
           recording
           loop-enable
           larm-loop-enable
@@ -80,12 +80,10 @@
           ;; spacenav controller
           spacenav-joy-topic-name
           spacenav-joy-axes-threshold
-
           larm-spacenav-joy-axes
           rarm-spacenav-joy-axes
           left-wait-count
           right-wait-count
-
           larm-left
           larm-prev-left
           larm-left-count

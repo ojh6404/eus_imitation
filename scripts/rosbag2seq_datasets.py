@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
+
 import os
 import time
-import argparse
+from absl import app, flags, logging
 from omegaconf import OmegaConf
 import pprint
 from tqdm import tqdm
-
 import numpy as np
-import cv2
 import h5py
 from moviepy.editor import ImageSequenceClip
 from tunable_filter.composite_zoo import HSVBlurCropResolFilter
@@ -16,20 +15,35 @@ import rospy
 import rosbag
 import message_filters
 from cv_bridge import CvBridge
-
 from sensor_msgs.msg import CompressedImage, Image, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
+
 import imitator.utils.ros_utils as RosUtils
 import imitator.utils.file_utils as FileUtils
+
+FLAGS = flags.FLAGS
+flags.DEFINE_string("project_name", None, "Name of the project to load config from.")
+flags.DEFINE_string("rosbag_dir", None, "Name of the project to load config from.")
+flags.DEFINE_string("data_dir", None, "Path to finetuning dataset, in RLDS format.")
+flags.DEFINE_string("save_dir", None, "Directory for saving finetuning checkpoints.")
+flags.DEFINE_integer("batch_size", 128, "Batch size for finetuning.")
+flags.DEFINE_bool(
+    "image_tune",
+    False,
+    "Whether to tune image filter.",
+)
+flags.DEFINE_string("vis_image", "head_image", "Image key to visualize.")
+flags.DEFINE_bool("gif", False, "Whether to save gif.")
+flags.DEFINE_float("ratio", 0.1, "Ratio of validation data.")
 
 # for no roscore
 rospy.Time = RosUtils.PatchTimer
 
 
-def main(args):
-    config = FileUtils.get_config_from_project_name(args.project_name)
-    rosbags = RosUtils.get_rosbag_abs_paths(args.rosbag_dir)
-    print("Found {} rosbags".format(len(rosbags)))
+def main(_):
+    config = FileUtils.get_config_from_project_name(FLAGS.project_name)
+    rosbags = RosUtils.get_rosbag_abs_paths(FLAGS.rosbag_dir)
+    logging.info("Found {} rosbags".format(len(rosbags)))
 
     # get dataset config
     mf_cfg = config.ros.message_filters
@@ -46,8 +60,10 @@ def main(args):
     topics = obs_topics + [action_topic]
     msg_types = obs_msg_types + [action_msg_type]
 
-    if args.gif:
-        assert args.image in obs_keys, "image key not found in obs_keys to write gif"
+    if FLAGS.vis_image:
+        assert (
+            FLAGS.vis_image in obs_keys
+        ), "image key not found in obs_keys to write gif"
 
     subscribers = dict()
     for topic, msg_type in zip(topics, msg_types):
@@ -61,8 +77,8 @@ def main(args):
         allow_headerless=False,
     )
 
-    print("Observation and Action keys: {}".format(obs_keys + ["action"]))
-    print("Subscribing to topics: {}".format(topics))
+    logging.info("Observation and Action keys: {}".format(obs_keys + ["action"]))
+    logging.info("Subscribing to topics: {}".format(topics))
 
     def callback(*msgs):
         for topic, msg in zip(topics, msgs):
@@ -77,15 +93,15 @@ def main(args):
                         )
                     else:
                         data = img_bridge.imgmsg_to_cv2(msg, "rgb8").astype(np.uint8)
-                    if args.image_tune:  # tuning image with first data
+                    if FLAGS.image_tune:  # tuning image with first data
                         tunable = HSVBlurCropResolFilter.from_image(data)
-                        print("Press q to finish tuning")
+                        logging.info("Press q to finish tuning")
                         tunable.launch_window()
                         tunable.start_tuning(data)
                         pprint.pprint(tunable.export_dict())
                         tunable.dump_yaml(
                             os.path.join(
-                                FileUtils.get_config_folder(args.project_name),
+                                FileUtils.get_config_folder(FLAGS.project_name),
                                 "image_filter.yaml",
                             )
                         )
@@ -94,13 +110,13 @@ def main(args):
                     else:  # load from yaml and proess image
                         assert os.path.exists(
                             os.path.join(
-                                FileUtils.get_config_folder(args.project_name),
+                                FileUtils.get_config_folder(FLAGS.project_name),
                                 "image_filter.yaml",
                             )
                         ), "image_filter.yaml not found. Please run with --image_tune first."
                         tunable = HSVBlurCropResolFilter.from_yaml(
                             os.path.join(
-                                FileUtils.get_config_folder(args.project_name),
+                                FileUtils.get_config_folder(FLAGS.project_name),
                                 "image_filter.yaml",
                             )
                         )
@@ -112,7 +128,7 @@ def main(args):
     ts.registerCallback(callback)
 
     # create directory if not exist
-    output_dir = os.path.join(FileUtils.get_project_folder(args.project_name), "data")
+    output_dir = FileUtils.get_data_folder(FLAGS.project_name)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -136,7 +152,7 @@ def main(args):
             obs_max_buf[obs_key] = None
             obs_min_buf[obs_key] = None
 
-    print("Processing rosbags...")
+    logging.info("Processing rosbags...")
     for i, bag in enumerate(tqdm(rosbags)):
         obs_buf = dict()  # {obs_key: [obs_data]}, obs_data is numpy array
         action_buf = []  # [action_data], action_data is numpy array
@@ -202,8 +218,8 @@ def main(args):
         hdf5_file.flush()
 
         os.makedirs(os.path.join(output_dir, "gif"), exist_ok=True)
-        if i % 5 == 0 and args.gif:
-            clip = ImageSequenceClip(obs_buf[args.image], fps=10)  # TODO image key
+        if i % 5 == 0 and FLAGS.gif:
+            clip = ImageSequenceClip(obs_buf[FLAGS.vis_image], fps=10)  # TODO image key
             clip.write_gif(
                 os.path.join(output_dir, "gif", "demo_{}.gif".format(i)),
                 fps=10,
@@ -213,7 +229,7 @@ def main(args):
     # train val split
     demos = list(demo_group.keys())
     num_demos = len(demos)
-    num_val = int(args.ratio * num_demos)
+    num_val = int(FLAGS.ratio * num_demos)
     mask = np.zeros(num_demos)
     mask[:num_val] = 1
     np.random.shuffle(mask)
@@ -227,6 +243,9 @@ def main(args):
     mask_group = hdf5_file.create_group("mask")
     mask_group.create_dataset("train", data=np.array(train_keys, dtype="S"))
     mask_group.create_dataset("valid", data=np.array(valid_keys, dtype="S"))
+
+    # meta data
+    hdf5_file.attrs["language_instruction"] = config.task.language_instruction
 
     # after processing all rosbags
     # save data for normalization
@@ -245,34 +264,11 @@ def main(args):
     normalize_cfg = OmegaConf.create(normalize_data)
     OmegaConf.save(
         normalize_cfg,
-        os.path.join(FileUtils.get_config_folder(args.project_name), "normalize.yaml"),
+        os.path.join(FileUtils.get_config_folder(FLAGS.project_name), "normalize.yaml"),
     )
 
     hdf5_file.close()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-pn", "--project_name", type=str, required=True, help="project name"
-    )
-    parser.add_argument(
-        "-d", "--rosbag_dir", type=str, required=True, help="path to rosbag directory"
-    )
-    parser.add_argument(
-        "-t",
-        "--image_tune",
-        action="store_true",
-        default=False,
-        help="tune image filter",
-    )
-    parser.add_argument("--gif", action="store_true", default=False, help="save gif")
-    parser.add_argument(
-        "--image", type=str, default="image", help="image obs key to write gif"
-    )
-    parser.add_argument(
-        "-r", "--ratio", type=float, default=0.1, help="ratio of validation data"
-    )
-    args = parser.parse_args()
-
-    main(args)
+    app.run(main)
