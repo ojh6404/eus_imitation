@@ -3,20 +3,39 @@
 import rospy
 import time
 from kortex_driver.srv import SendGripperCommand, SendGripperCommandRequest
-from kortex_driver.msg import GripperCommand, GripperMode, GripperRequest, GripperMode, Gripper, Finger
+from kortex_driver.msg import (
+    GripperCommand,
+    GripperMode,
+    GripperRequest,
+    GripperMode,
+    Gripper,
+    Finger,
+)
 from sensor_msgs.msg import Joy, JointState
 from eus_imitation.msg import Float32MultiArrayStamped
+
 
 class KinovaGripperController(object):
     def __init__(self):
 
         self.robot_name = "arm_gen3"
-        self.gripper_command_service = rospy.ServiceProxy('/arm_gen3/base/send_gripper_command', SendGripperCommand)
-        self.gripper_state_subscriber = rospy.Subscriber('/arm_gen3/joint_states', JointState, self.gripper_state_callback)
+        self.gripper_command_service = rospy.ServiceProxy(
+            "/arm_gen3/base/send_gripper_command", SendGripperCommand
+        )
+        self.gripper_state_subscriber = rospy.Subscriber(
+            "/arm_gen3/joint_states", JointState, self.gripper_state_callback
+        )
         # self.joy_sub = rospy.Subscriber('/spacenav/joy', Joy, self.cmd_callback, queue_size=1)
-        self.gripper_state_pub = rospy.Publisher('/eus_imitation/gripper_state', Float32MultiArrayStamped, queue_size=1)
-        self.gripper_action_sub = rospy.Subscriber('/eus_imitation/robot_action', Float32MultiArrayStamped, self.gripper_action_callback, queue_size=1)
-        rospy.wait_for_service('/arm_gen3/base/send_gripper_command')
+        self.gripper_state_pub = rospy.Publisher(
+            "/eus_imitation/gripper_state", Float32MultiArrayStamped, queue_size=1
+        )
+        self.gripper_action_sub = rospy.Subscriber(
+            "/eus_imitation/robot_action",
+            Float32MultiArrayStamped,
+            self.gripper_action_callback,
+            queue_size=1,
+        )
+        rospy.wait_for_service("/arm_gen3/base/send_gripper_command")
 
         self.gripper_pos = None
         self.gripper_cmd = None
@@ -49,12 +68,13 @@ class KinovaGripperController(object):
             self.gripper_command(0.0)
 
     def gripper_state_callback(self, msg):
-        self.gripper_pos = msg.position[7] # finger_joint
-        self.gripper_state_pub.publish(Float32MultiArrayStamped(header=msg.header, data=[self.gripper_pos]))
+        self.gripper_pos = msg.position[7]  # finger_joint
+        self.gripper_state_pub.publish(
+            Float32MultiArrayStamped(header=msg.header, data=[self.gripper_pos])
+        )
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     rospy.init_node("kinova_gripper_controller")
     rospy.loginfo("Start kinova gripper control...")
     rosbag_manager = KinovaGripperController()

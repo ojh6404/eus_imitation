@@ -26,16 +26,12 @@ def main(args):
         if "train" in f["mask"].keys():
             train_mask = [
                 elem.decode("utf-8")
-                for elem in np.array(
-                    f["mask/{}".format("train")][:]
-                )
+                for elem in np.array(f["mask/{}".format("train")][:])
             ]
         if "valid" in f["mask"].keys():
             valid_mask = [
                 elem.decode("utf-8")
-                for elem in np.array(
-                    f["mask/{}".format("valid")][:]
-                )
+                for elem in np.array(f["mask/{}".format("valid")][:])
             ]
 
     print("=============================")

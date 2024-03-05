@@ -16,6 +16,7 @@ from imitator.utils import file_utils as FileUtils
 from imitator.utils.env_utils import RolloutBase
 from eus_imitation.msg import Float32MultiArrayStamped
 
+
 class ROSRollout(RolloutBase):
     """
     Wrapper class for rollout in ROS
