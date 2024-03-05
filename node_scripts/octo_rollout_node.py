@@ -163,9 +163,6 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", default=False)
     args = parser.parse_args()
 
-    if args.checkpoint is None:
-        args.checkpoint = FileUtils.get_best_runs(args.project_name, "rnn")
-
     config = FileUtils.get_config_from_project_name(args.project_name)
     config.network.policy.checkpoint = args.checkpoint
     config.project_name = args.project_name
