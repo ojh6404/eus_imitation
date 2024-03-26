@@ -13,8 +13,7 @@
 
 (defclass robot-teaching-interface
   :super propertied-object
-  :slots (;; robot control
-          device
+  :slots (device
           rate
           tfl
           control-arm
@@ -27,7 +26,6 @@
           rarm-loop-enable
           larm-enable-p
           rarm-enable-p
-          data-collection
           gripper-threshold
           pos-scale
           rot-scale
@@ -96,6 +94,10 @@
           rarm-right
           rarm-prev-right
           rarm-right-count
+          larm-target-linear-velocity
+          larm-target-angular-velocity
+          rarm-target-linear-velocity
+          rarm-target-angular-velocity
 
           ;; rogik controller
           larm-rogik-device-id
@@ -132,8 +134,7 @@
           rarm-rogik-offset))
 
 (defmethod robot-teaching-interface
-  (:init  (&key (rate 10) (imitation nil) (device :vive))
-    (send self :set-val 'data-collection (not imitation)) ;; mode
+  (:init  (&key (rate 10) (device :vive) &allow-other-keys)
     (send self :set-val 'device device)
     (send self :set-val 'rate rate)
     (send self :set-val 'mirror nil)
@@ -189,7 +190,14 @@
   (:calib-controller  (arm)
     (send self :controller-method device :calib-controller arm))
   (:get-target-coords (arm &key (pos-scale 100) (rot-scale (/ pi 4)))
-    (send self :controller-method device :get-target-coords arm :pos-scale pos-scale :rot-scale rot-scale))
+    (if (eq arm :arms)
+      (progn
+        (list (send self :get-target-coords :larm :pos-scale pos-scale :rot-scale rot-scale)
+              (send self :get-target-coords :rarm :pos-scale pos-scale :rot-scale rot-scale)))
+      (progn
+        (send self :set-arm-val arm :target-coords (send self :controller-method device :get-target-coords arm :pos-scale pos-scale :rot-scale rot-scale))
+        (send self :set-arm-val arm :target-end-pos (send (send self :get-arm-val arm :target-coords) :worldpos))
+        (send self :set-arm-val arm :target-end-rpy (coerce (elt (rpy-angle (send (send self :get-arm-val arm :target-coords) :worldrot)) 0) float-vector)))))
   (:controller-cb (arm msg) ;; NOTE no axes because it is not used
     (send self :controller-method device :controller-cb arm msg))
   (:button-cb ()
@@ -375,9 +383,6 @@
                                         :pos (scale pos-scale (send tf-controllerref->controller :pos))
                                         :rot (send tf-controllerref->controller :rot)))
             (target-coords (send tf-gripperref->gripper :transform (send tf-base->gripperref :copy-worldcoords) :world)))
-          (send self :set-arm-val arm :target-coords target-coords)
-          (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
-          (send self :set-arm-val arm :target-end-rpy  (coerce (elt (rpy-angle (send target-coords :worldrot)) 0) float-vector))
       target-coords))
   (:vive-controller-cb (arm msg) ;; NOTE no axes because it is not used
         (send self :set-arm-val arm :prev-trigger (send self :get-arm-val arm :trigger))
@@ -493,9 +498,6 @@
                     :worldrot)
               current-end-rot))
            (target-coords (make-coords :pos target-pos :rot target-rot)))
-          (send self :set-arm-val arm :target-coords target-coords)
-          (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
-          (send self :set-arm-val arm :target-end-rpy (coerce (elt (rpy-angle (send target-coords :worldrot)) 0) float-vector))
         target-coords))
   (:spacenav-controller-cb (arm msg)
     (send self :spacenav-controller-axes-cb arm (send msg :axes))
@@ -627,12 +629,7 @@
     (ros::ros-info "Calibrating controller ~A" arm)
     (send self :update-robot))
   (:rogik-get-target-coords (arm &key (pos-scale 1.0) (rot-scale 1.0))
-    ;; (let* ((target-coords (send self :get-base->gripper-coords arm)))
     (let* ((target-coords (send self :get-base->gripper-coords arm)))
-          (send self :set-arm-val arm :target-coords target-coords)
-          ;; (send self :set-arm-val arm :target-end-pos (v+ (send target-coords :worldpos) (send self :get-arm-val arm :rogik-offset))) ;; calibrate offset
-          (send self :set-arm-val arm :target-end-pos (send target-coords :worldpos))
-          (send self :set-arm-val arm :target-end-rpy  (coerce (elt (rpy-angle (send target-coords :worldrot)) 0) float-vector))
       target-coords))
   (:rogik-controller-cb (arm msg) ;; NOTE no axes because it is not used
         (send self :set-arm-val arm :prev-blue (send self :get-arm-val arm :blue))

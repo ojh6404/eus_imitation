@@ -20,29 +20,11 @@
     (send self :set-val 'min-time 0.3))
 
   ;; NOTE user can define action and state
-  (:update-robot-action () ;; when data collection
-        (send self :set-val 'robot-action
-              (concatenate float-vector
-                  (send self :get-arm-val :rarm :target-end-pos)
-                  (send self :get-arm-val :rarm :target-end-rpy)
-                  (float-vector (send self :get-arm-val :rarm :grasp)))))
   (:update-robot-state ()
-        (send self :set-val 'robot-state
-              (concatenate float-vector
-                  (send self :get-arm-val :rarm :current-end-pos)
-                  (send self :get-arm-val :rarm :current-end-rpy)
-                  (float-vector (send self :get-arm-val :rarm :gripper-pos)))))
-  (:parse-robot-action () ;; parse action from ros topic and execute it when imitation mode. define own action execution
-      (let* ((action (send self :get-val 'robot-action))
-             (rarm-target-end-effector-pos (subseq action 0 3))
-             (rarm-target-end-effector-rpy (subseq action 3 6))
-             (rarm-gripper-command (elt action 6))
-             (rarm-target-end-effector-coords (make-coords :pos rarm-target-end-effector-pos :rpy rarm-target-end-effector-rpy)))
-        ;; execute action
-        (send self :inverse-kinematics :rarm rarm-target-end-effector-coords)
-        (send self :angle-command-vector :rarm :torso nil)
-        (if (> rarm-gripper-command gripper-threshold)
-            (send self :start-grasp :rarm :wait nil)
-            (send self :stop-grasp :rarm :wait nil)))))
+    (send self :set-val 'robot-state
+          (concatenate float-vector
+              (send self :get-arm-val :rarm :current-end-pos)
+              (send self :get-arm-val :rarm :current-end-rpy)
+              (float-vector (send self :get-arm-val :rarm :gripper-pos))))))
 
 (provide :pr2-imitation-interface)
