@@ -1,0 +1,10 @@
+.DS_Store
+.idea
+*.log
+tmp/
+
+*.hdf5
+*.npy
+data/
+
+*.pyc
