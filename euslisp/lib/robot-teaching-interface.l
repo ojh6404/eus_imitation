@@ -10,6 +10,7 @@
 (ros::load-ros-manifest "sensor_msgs")
 (ros::load-ros-manifest "std_msgs")
 (ros::load-ros-manifest "std_srvs")
+(ros::load-ros-manifest "speech_recognition_msgs")
 
 (defclass robot-teaching-interface
   :super propertied-object
@@ -128,7 +129,24 @@
           larm-rogik-joint-state
           rarm-rogik-joint-state
           larm-rogik-offset
-          rarm-rogik-offset))
+          rarm-rogik-offset
+
+          mirror-hand
+          larm-hand-id
+          rarm-hand-id
+          larm-hand-frame-id
+          rarm-hand-frame-id
+          finger-wait-count
+          larm-finger
+          larm-prev-finger
+          larm-finger-count
+          rarm-finger
+          rarm-prev-finger
+          rarm-finger-count
+          larm-tf-base->hand
+          rarm-tf-base->hand
+          larm-hand-offset
+          rarm-hand-offset))
 
 (defmethod robot-teaching-interface
   (:init  (&key (rate 10) (device :vive) &allow-other-keys)
@@ -211,17 +229,17 @@
 
   ;; controller common
   (:enable-cb (arm &key (mirror nil) (button :trackpad))
-    (send self :loop-enable-arm arm :mirror mirror :button button)
-    (if (and (send self :get-arm-val :larm :enable) (send self :get-arm-val :rarm :enable))
+    (send self :loop-enable-arm arm :mirror mirror :button button) ;; enable arm
+    (if (and (send self :get-arm-val :larm :enable) (send self :get-arm-val :rarm :enable)) ;; set control-arm variable
       (send self :set-val 'control-arm :arms)
       (if (send self :get-arm-val :larm :enable)
         (send self :set-val 'control-arm :larm)
         (if (send self :get-arm-val :rarm :enable)
           (send self :set-val 'control-arm :rarm)
           (send self :set-val 'control-arm nil)))))
-  (:record-cb (&key (button :menu))
+  (:record-cb (&key (arm :rarm) (button :menu))
     (let (req res (record-button-p
-            (send self :controller-button-p :rarm button :button-toggle t))
+            (send self :controller-button-p arm button :button-toggle t))
           (record-p (send self :get-val 'recording)))
       (if record-button-p
           (progn
@@ -738,6 +756,138 @@
   (:controller-display-button-p (arm &key (button-toggle t))
     (send self :controller-button-common-p
           (if (eq arm :larm) 'larm-display 'rarm-display)
+          :button-toggle button-toggle))
+
+  ;; hand controller
+  (:hand-init ()
+    (send self :set-val 'pos-scale 1.0)
+    (send self :set-val 'rot-scale 1.0)
+    (send self :set-val 'tfl (instance ros::transform-listener :init))
+    (send self :set-val 'base-frame-id "base_footprint")
+    ;; (send self :set-arm-val :larm :hand-id
+    ;;  (ros::get-param "/eus_imitation/l_hand_id"))
+    ;; (send self :set-arm-val :rarm :hand-id
+    ;;  (ros::get-param "/eus_imitation/r_hand_id"))
+    (send self :set-val 'mirror-hand (ros::get-param "/eus_imitation/mirror" nil))
+    (if mirror-hand
+        (progn
+          (send self :set-arm-val :larm :hand-id "right_hand")
+          (send self :set-arm-val :rarm :hand-id "left_hand"))
+        (progn
+          (send self :set-arm-val :larm :hand-id "left_hand")
+          (send self :set-arm-val :rarm :hand-id "right_hand")))
+    ;; (if mirror-hand
+    ;;     (progn
+    ;;       (send self :set-arm-val :larm :hand-id "target_right_gripper_frame")
+    ;;       (send self :set-arm-val :rarm :hand-id "target_left_gripper_frame"))
+    ;;     (progn
+    ;;       (send self :set-arm-val :larm :hand-id "target_left_gripper_frame")
+    ;;       (send self :set-arm-val :rarm :hand-id "target_right_gripper_frame")))
+    ;; (send self :set-arm-val :larm :hand-offset
+    ;;   (scale 1000 (coerce (ros::get-param "/eus_imitation/l_hand_offset") float-vector)))
+    ;; (send self :set-arm-val :rarm :hand-offset
+    ;;   (scale 1000 (coerce (ros::get-param "/eus_imitation/r_hand_offset") float-vector)))
+    (send self :set-val 'recording nil)
+    (send self :set-val 'finger-wait-count 5)
+    (send self :set-val 'voice-wait-count 5))
+  (:hand-ros-init ()
+      (if larm-hand-id
+        (progn
+          (send self :set-arm-val :larm :hand-frame-id (format nil "target_~A" larm-hand-id))
+          (ros::subscribe (format nil "/eus_imitation/hand_joy_node/~A/joy"
+                                  (send self :get-arm-val :larm :hand-id))
+                          sensor_msgs::Joy #'send self :hand-controller-cb :larm)
+          (ros::ros-info "Detected left arm hand ID :  ~A" larm-hand-id))
+        (ros::ros-warn "Left hand id is not set"))
+      (if rarm-hand-id
+        (progn
+          (send self :set-arm-val :rarm :hand-frame-id (format nil "target_~A" rarm-hand-id))
+          (ros::subscribe (format nil "/eus_imitation/hand_joy_node/~A/joy"
+                                  (send self :get-arm-val :rarm :hand-id))
+                          sensor_msgs::Joy #'send self :hand-controller-cb :rarm)
+          (ros::ros-info "Detected right arm hand ID :  ~A" rarm-hand-id))
+        (ros::ros-warn "Righ hand id is not set"))
+      (ros::subscribe "/speech_to_text" speech_recognition_msgs::SpeechRecognitionCandidates #'send self :voice-cb)
+    t)
+  (:hand-reset-arm-val (arm)
+    (send self :set-arm-val arm :finger nil)
+    (send self :set-arm-val arm :prev-finger nil)
+    (send self :set-arm-val arm :finger-count 0)
+    (send self :set-arm-val arm :voice nil)
+    (send self :set-arm-val arm :prev-voice nil)
+    (send self :set-arm-val arm :voice-count 0))
+  (:hand-calib-controller (arm)
+    (ros::ros-info "Calibrating controller ~A" arm)
+    (send self :update-robot))
+  (:hand-get-target-coords (arm &key (pos-scale 1.0) (rot-scale 1.0)) ;; TODO
+    (let* ((target-coords (send self :get-base->hand-coords arm)))
+      target-coords))
+  (:hand-controller-cb (arm msg) ;; NOTE no axes because it is not used
+        (send self :set-arm-val arm :prev-finger (send self :get-arm-val arm :finger))
+        (send self :set-arm-val arm :finger (> (elt (send msg :buttons) 0) 0))
+        (send self :set-arm-val arm :prev-voice (send self :get-arm-val arm :voice))
+        (send self :set-arm-val arm :voice (> (elt (send msg :buttons) 1) 0)))
+  (:voice-cb (msg) ;; TODO
+        (let* (req res (text (elt (send msg :transcript) 0))
+               (arm :rarm) ;; TODO
+               (record-p (send self :get-val 'recording))
+               (enable-p (send self :get-arm-val arm :enable)))
+          (cond ((string= text "ストップ")
+                 (if record-p ;; if recording, stop recording
+                   (progn
+                     (ros::ros-info "recording stop")
+                     (ros::wait-for-service record-trigger-service-name 1)
+                     (setq req (instance std_srvs::TriggerRequest :init))
+                     (setq res (ros::service-call record-trigger-service-name req))
+                     (send self :set-val 'recording nil)))
+                 (if enable-p ;; if arm is enabled, disable arm
+                   (progn
+                     (send self :set-arm-val arm :enable nil)
+                     (send self :set-val 'control-arm nil)
+                     (progn
+                       (send robot-interface :cancel-angle-vector
+                             :controller-type (send self :get-arm-controller arm))
+                       (if (find-method robot-interface :torso-controller)
+                         (send robot-interface :cancel-angle-vector :controller-type :torso-controller))
+                       (ros::ros-info "arm: ~A stopping" arm)))))
+                ((string= text "スタート")
+                 (if (not record-p) ;; if not recording, start recording
+                     (progn
+                       (ros::ros-info "recording start")
+                       (ros::wait-for-service record-trigger-service-name 1)
+                       (setq req (instance std_srvs::TriggerRequest :init))
+                       (setq res (ros::service-call record-trigger-service-name req nil))
+                       (send self :set-val 'recording t)))
+                 (if (not enable-p) ;; if arm is not enabled, enable arm
+                     (progn
+                       (send self :set-arm-val arm :enable t)
+                       (send self :set-val 'control-arm arm)
+                       (send self :update-robot)
+                       (ros::ros-info "arm: ~A starting" arm)
+                       (send self :calib-controller arm))))
+                (t (ros::ros-warn "Unknown voice command: ~A" text)))))
+  (:hand-button-cb ()
+    ;; (send self :enable-cb :larm :mirror nil :button :red) ;; check trackpad button to enable/disable arm
+    ;; (send self :enable-cb :rarm :mirror nil :button :voice) ;; check trackpad button to enable/disable arm
+    ;; (send self :record-cb :button :voice)
+    (send self :gripper-cb :larm :wait nil :button :finger) ;; check trigger button to close gripper
+    (send self :gripper-cb :rarm :wait nil :button :finger)) ;; check trigger button to close gripper
+  (:get-base->hand-coords (arm &key (wait-time 0.2))
+    (let ((hand-frame-id (send self :get-arm-val arm :hand-frame-id))
+          (start-time (ros::time 0))
+          coords)
+      (if (or (null base-frame-id) (null hand-frame-id))
+        (progn
+          (ros::ros-warn "Frame ids are not set properly.")
+          (ros::ros-warn "base-frame-id: ~A" base-frame-id)
+          (ros::ros-warn "hand-frame-id: ~A" hand-frame-id)
+          (return-from :get-base->hand-coords nil)))
+      (send tfl :wait-for-transform base-frame-id hand-frame-id start-time wait-time)
+      (setq coords (send tfl :lookup-transform base-frame-id hand-frame-id start-time))
+      coords))
+  (:controller-finger-button-p (arm &key (button-toggle t))
+    (send self :controller-button-common-p
+          (if (eq arm :larm) 'larm-finger 'rarm-finger)
           :button-toggle button-toggle)))
 
 (provide :robot-teaching-interface)

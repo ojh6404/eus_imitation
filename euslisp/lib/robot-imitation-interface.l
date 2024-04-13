@@ -314,7 +314,8 @@
             (gripper-command (elt action 6))
             (target-end-effector-coords (make-coords :pos target-end-effector-pos :rpy target-end-effector-rpy)))
       ;; execute action
-      (send self :inverse-kinematics arm target-end-effector-coords)
+      (send self :set-arm-val arm :target-coords target-end-effector-coords)
+      (send self :inverse-kinematics arm)
       (send self :angle-command-vector arm :torso nil)
       (if (> gripper-command gripper-threshold)
           (send self :start-grasp :rarm :wait nil)
@@ -327,7 +328,7 @@
           (send self :set-arm-val control-arm :target-joint-state (send robot control-arm :angle-vector))
           (send self :update-robot-action control-arm)
           (send self :publish-robot-action)
-          (unless (eq device :rogik) ;; TODO
+          (unless (or (eq device :rogik) (eq device :hand))
             (send self :angle-command-vector control-arm :torso nil))
           (if (> (send self :get-arm-val :larm :grasp) gripper-threshold) ;; TODO
               (send self :start-grasp :larm :wait nil)
@@ -336,7 +337,8 @@
               (send self :start-grasp :rarm :wait nil)
               (send self :stop-grasp :rarm :wait nil)))
         (if (and imitation-mode robot-action) ;; when imitation, parsing action from topic recieved and execute
-          (send self :parse-robot-action control-arm))))
+          ;; (send self :parse-robot-action control-arm))))
+          (send self :parse-robot-action :rarm)))) ;; TODO
   (:main-loop-step ()
       (send self :button-cb)
       (send self :update-robot)
