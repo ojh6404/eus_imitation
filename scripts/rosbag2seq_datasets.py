@@ -24,15 +24,12 @@ import imitator.utils.file_utils as FileUtils
 FLAGS = flags.FLAGS
 flags.DEFINE_string("project_name", None, "Name of the project to load config from.")
 flags.DEFINE_string("rosbag_dir", None, "Name of the project to load config from.")
-flags.DEFINE_string("data_dir", None, "Path to finetuning dataset, in RLDS format.")
-flags.DEFINE_string("save_dir", None, "Directory for saving finetuning checkpoints.")
-flags.DEFINE_integer("batch_size", 128, "Batch size for finetuning.")
 flags.DEFINE_bool(
     "image_tune",
     False,
     "Whether to tune image filter.",
 )
-flags.DEFINE_string("vis_image", "head_image", "Image key to visualize.")
+flags.DEFINE_string("vis_image", "head_image", "Image key to visualize for checking.")
 flags.DEFINE_bool("gif", False, "Whether to save gif.")
 flags.DEFINE_float("ratio", 0.1, "Ratio of validation data.")
 
@@ -197,7 +194,20 @@ def main(_):
                         obs_min_buf[obs_key], np.min(obs_data, axis=0)
                     )
 
-        action_data = np.array(action_buf)
+
+        # action : proprio_trajectory, action_trajectory
+        # if proprio_trajectory, action will be delta of trajectory of proprio
+        # if action_trajectory, action will be trajectory of action
+        if config.actions.type == "action_trajectory":
+            action_data = np.array(action_buf)
+        elif config.actions.type == "proprio_trajectory":
+            action_data = np.diff(np.array(obs_buf["proprio"]), axis=0)
+            # repeat last action
+            action_data = np.concatenate(
+                [action_data, action_data[-1:]], axis=0
+            )
+        else:
+            raise NotImplementedError
         demo.create_dataset(
             "actions",
             data=action_data,

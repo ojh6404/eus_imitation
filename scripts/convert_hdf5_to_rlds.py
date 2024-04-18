@@ -8,11 +8,10 @@ import h5py
 
 import imitator.utils.file_utils as FileUtils
 
-imitator_config = FileUtils.get_config_from_project_name("imitator")
+imitator_config = FileUtils.get_config_from_project_name("pr2_octo")
 FileUtils.print_config(imitator_config)
-dataset_path = os.path.join(FileUtils.get_data_folder("imitator"), "dataset.hdf5")
+dataset_path = os.path.join(FileUtils.get_data_folder("pr2_octo"), "dataset.hdf5")
 obs_keys = list(imitator_config.obs.keys())
-
 
 class ImitatorDataset(tfds.core.GeneratorBasedBuilder):
     VERSION = tfds.core.Version("1.0.0")
