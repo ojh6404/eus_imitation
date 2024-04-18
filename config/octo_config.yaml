@@ -1,0 +1,123 @@
+ros:
+  rate: 10
+  action_type: "IK" # TODO
+  message_filters:
+    slop: 0.1
+    queue_size: 1
+  additional_topics:
+    - "/tf"
+    - "/joint_states"
+    - "/kinect_head/depth_registered/image_rect/compressedDepth"
+    - "/kinect_head/rgb/camera_info"
+    - "/eus_imitation/l_arm_state"
+    - "/eus_imitation/r_arm_state"
+    - "/eus_imitation/l_arm_end_coords"
+    - "/eus_imitation/r_arm_end_coords"
+    - "/eus_imitation/all_robot_state"
+    - "/spacenav/joy"
+    - "/controller_LHR_FD35BD42/joy"
+    - "/controller_LHR_F7AFBF47/joy"
+    - "/tracking_ros/segmentor/output/boxes"
+    - "/tracking_ros/segmentor/output/centroid"
+
+obs: # input into policy
+  head_image:
+    topic_name: "/kinect_head/rgb/image_rect_color/compressed"
+    msg_type: "CompressedImage"
+    modality: "ImageModality"
+    normalize: True
+    data_augmentation: True
+    obs_encoder:
+      model: "Resnet"
+      model_path: null
+      model_kwargs:
+        input_size: [224, 224]
+        input_channel: 3
+        resnet_type: "resnet18"
+        input_coord_conv: False
+        pretrained: False
+        latent_dim: 32
+        pool: "SpatialSoftmax"
+        pool_kwargs:
+          num_kp: 32
+          temperature: 1.0
+          learnable_temperature: False
+          output_variance: False
+          noise_std: 0.0
+      trainable: True
+      input_dim: [224, 224, 3]
+      activation: "ReLU"
+      layer_dims: null
+      output_dim: 32
+      has_decoder: False
+      freeze: False
+  proprio:
+    topic_name: "/eus_imitation/robot_state"
+    msg_type: "Float32MultiArrayStamped"
+    modality: "FloatVectorModality"
+    normalize: True
+    obs_encoder:
+      input_dim: 4 # x,y,z, gripper
+      output_dim: 4
+      layer_dims: null
+      activation: "ReLU" # [ReLU, Tanh...]
+actions:
+  type: "proprio_trajectory"
+  topic_name: "/eus_imitation/robot_action"
+  msg_type: "Float32MultiArrayStamped"
+  modality: "FloatVectorModality"
+  dim: 4 # x,y,z, gripper
+  normalize: True
+task:
+  language_instruction: "Pick up the bread on the table"
+
+network:
+  policy:
+    # model: "TransformerActor"
+    model: "OctoActor"
+    model_path: null
+    transformer:
+      type: "GPT"
+      transformer_num_layers: 6
+      transformer_num_heads: 8
+      transformer_embed_dim: 512
+      context_length: 20
+      embed_dropout: 0.1
+      attn_dropout: 0.1
+      block_dropout: 0.1
+      activation: "gelu"
+    mlp_decoder:
+      layer_dims: []
+      activation: "ReLU"
+      squash_output: True
+    gmm:
+      enabled: False
+      modes: 5
+      min_std: 0.0001
+      low_noise_eval: True
+      use_tanh: False
+      std_activation: "F.softplus" # or torch.exp
+    train:
+      num_epochs: 1000
+      batch_size: 4096
+      criterion: "MSELoss"
+      lr: 1e-4
+      lr_scheduler: True
+      supervise_all_steps: True
+      optimizer: "AdamW"
+      weight_decay: 0.01
+      max_grad_norm: null # null or 1, 3, 5,...
+      weight:
+        l1: 0.0
+        l2: 1.0
+
+dataset:
+  dataset_keys: ["actions"]
+  load_next_obs: True
+  frame_stack: 20
+  pad_frame_stack: True
+  pad_seq_length: True
+  get_pad_mask: False
+  goal_mode: null
+  hdf5_cache_mode: "all"
+  hdf5_use_swmr: True

@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 
 import os
+import re
 from typing import Iterator, Tuple, Any
 import numpy as np
 import tensorflow_datasets as tfds
 import h5py
+from omegaconf import OmegaConf
 
-import imitator.utils.file_utils as FileUtils
-
-imitator_config = FileUtils.get_config_from_project_name("pr2_octo")
-FileUtils.print_config(imitator_config)
-dataset_path = os.path.join(FileUtils.get_data_folder("pr2_octo"), "dataset.hdf5")
+imitator_config = OmegaConf.load("config/octo_config.yaml")
+dataset_path = os.path.join("data", "dataset.hdf5")
 obs_keys = list(imitator_config.obs.keys())
 
 class ImitatorDataset(tfds.core.GeneratorBasedBuilder):
@@ -86,7 +85,15 @@ class ImitatorDataset(tfds.core.GeneratorBasedBuilder):
         """Generator of examples for each split."""
         f = h5py.File(dataset_path, "r")
         language_instruction = f.attrs["language_instruction"]
-        demos = FileUtils.sort_names_by_number(f["data"].keys())
+
+        def extract_number(name):
+            match = re.search(r"\d+", name)
+            if match:
+                return int(match.group())
+            else:
+                return 0
+
+        demos = sorted(f["data"].keys(), key=extract_number)
         demos = [elem.decode("utf-8") for elem in np.array(f["mask/{}".format(key)][:])]
 
         def _parse_example(demo_key):

@@ -8,6 +8,7 @@ import optax
 import tensorflow as tf
 import tqdm
 import wandb
+from omegaconf import OmegaConf
 
 from octo.data.dataset import make_single_dataset
 from octo.data.utils.data_utils import NormalizationType
@@ -22,8 +23,6 @@ from octo.utils.train_utils import (
     process_text,
     TrainState,
 )
-import imitator.utils.file_utils as FileUtils
-
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("project_name", None, "Name of the project to load config from.")
@@ -43,15 +42,14 @@ flags.DEFINE_integer("epoch", 10000, "Number of epochs for finetuning.")
 
 
 def main(_):
-    imitator_config = FileUtils.get_config_from_project_name(FLAGS.project_name)
-    FileUtils.print_config(imitator_config)
 
+    imitator_config = OmegaConf.load("config/octo_config.yaml")
     if FLAGS.save_dir is None:
-        FLAGS.save_dir = os.path.join(FileUtils.get_project_folder(FLAGS.project_name), "octo_checkpoints")
+        FLAGS.save_dir = os.path.join("/home/leus", "octo_models", FLAGS.project_name)
         os.makedirs(FLAGS.save_dir, exist_ok=True)
     if FLAGS.data_dir is None:
         # default is ~/tensorflow_datasets/imitator_dataset
-        FLAGS.data_dir = os.path.join(os.path.expanduser("~"), "tensorflow_datasets", "imitator_dataset")
+        FLAGS.data_dir = os.path.join(os.path.expanduser("~"), "tensorflow_datasets")
 
     assert FLAGS.batch_size % jax.device_count() == 0, "Batch size must be divisible by device count."
 
@@ -60,7 +58,7 @@ def main(_):
     tf.config.set_visible_devices([], "GPU")
 
     # setup wandb for logging
-    wandb.init(name=FLAGS.project_name, project="imitator")
+    wandb.init(name=FLAGS.project_name, project=FLAGS.project_name)
 
     # load pre-trained model
     logging.info("Loading pre-trained model...")

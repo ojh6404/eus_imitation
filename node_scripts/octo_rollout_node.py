@@ -4,6 +4,7 @@ import os
 import time
 from typing import Any, Dict
 from collections import OrderedDict
+from functools import partial
 
 import numpy as np
 from tunable_filter.composite_zoo import HSVBlurCropResolFilter
@@ -17,6 +18,19 @@ from imitator.utils import file_utils as FileUtils
 from eus_imitation.msg import Float32MultiArrayStamped
 
 from octo.model.octo_model import OctoModel
+
+
+def jax_has_gpu():
+    try:
+        _ = jax.device_put(jax.numpy.ones(1), device=jax.devices("gpu")[0])
+        return True
+    except:
+        return False
+
+
+assert (
+    jax_has_gpu()
+), "JAX does not have GPU support. Please install JAX with GPU support."
 
 
 class OctoROSRollout(object):
@@ -44,6 +58,8 @@ class OctoROSRollout(object):
             if cfg.obs[obs_key].modality == "ImageModality"
         ]
 
+        self.obs_dict_buf = {obs_key: None for obs_key in self.obs_keys}
+
         self.image_tuner = HSVBlurCropResolFilter.from_yaml(
             os.path.join(
                 FileUtils.get_config_folder(cfg.project_name), "image_filter.yaml"
@@ -52,6 +68,20 @@ class OctoROSRollout(object):
         self.ros_init()
         rospy.loginfo("PolicyExecutorNode initialized")
         self.inference_start = time.time()
+
+    def obs_callback(self, obs_key, msg):
+        if self.cfg.obs[obs_key].msg_type == "Image":
+            self.obs_dict_buf[obs_key] = self.image_tuner(
+                self.bridge.imgmsg_to_cv2(msg, "rgb8")
+            )
+        elif self.cfg.obs[obs_key].msg_type == "CompressedImage":
+            self.obs_dict_buf[obs_key] = self.image_tuner(
+                self.bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
+            )
+        elif self.cfg.obs[obs_key].msg_type == "Float32MultiArrayStamped":
+            self.obs_dict_buf[obs_key] = np.array(msg.data).astype(np.float32)
+        else:
+            raise NotImplementedError
 
     def ros_init(self):
         self.rate = self.cfg.ros.rate
@@ -65,30 +95,35 @@ class OctoROSRollout(object):
             "/eus_imitation/robot_action", Float32MultiArrayStamped, queue_size=1
         )  # TODO
         self.pub_image_obs = [
-            rospy.Publisher("/eus_imitation/" + image_obs, Image, queue_size=10)
+            rospy.Publisher("/eus_imitation/" + image_obs, Image, queue_size=1)
             for image_obs in self.image_obs
         ]
 
-        # subscribers
         self.sub_obs = [
-            message_filters.Subscriber(
+            rospy.Subscriber(
                 self.cfg.obs[key].topic_name,
                 eval(self.cfg.obs[key].msg_type),
+                partial(self.obs_callback, key),
+                queue_size=1,
+                buff_size=2 ** 24,
             )
             for key in self.obs_keys
         ]
+
         if self.debug:
             self.sub_obs.append(
-                message_filters.Subscriber(
-                    "/eus_imitation/robot_action", Float32MultiArrayStamped
+                rospy.Subscriber(
+                    "/eus_imitation/robot_action", Float32MultiArrayStamped, self.action_callback, queue_size=1
                 )
             )
-        self.obs_ts = message_filters.ApproximateTimeSynchronizer(
-            self.sub_obs,
-            self.queue_size,
-            self.slop,
-        )
-        self.obs_ts.registerCallback(self.obs_callback)
+
+        # rospy Timer Callback
+        self.callback_start = time.time()
+        self.timer = rospy.Timer(rospy.Duration(1 / self.rate), self.timer_callback)
+
+
+    def action_callback(self, msg):
+        self.debug_action = np.array(msg.data).astype(np.float32)
 
     def rollout(self, obs_dict: Dict[str, Any]) -> None:
         proprio = obs_dict["proprio"]
@@ -100,7 +135,7 @@ class OctoROSRollout(object):
         obs = {
             "image_primary": head_image[None, None],
             "proprio": proprio[None, None],
-            "pad_mask": np.asarray([[True]]),
+            "pad_mask": np.asarray([[True]]),  # TODO only for window size 1
         }
 
         if self.index % self.update_interval == 0:
@@ -119,33 +154,24 @@ class OctoROSRollout(object):
     def reset(self):
         self.index = 0
 
-    def obs_callback(self, *msgs) -> None:
-        processed_obs = OrderedDict()
-        for key, msg in zip(self.obs_keys, msgs):
-            if self.cfg.obs[key].msg_type == "Image":
-                processed_obs[key] = self.image_tuner(
-                    self.bridge.imgmsg_to_cv2(msg, "rgb8")
-                )
-            elif self.cfg.obs[key].msg_type == "CompressedImage":
-                processed_obs[key] = self.image_tuner(
-                    self.bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
-                )
-            elif self.cfg.obs[key].msg_type == "Float32MultiArrayStamped":
-                processed_obs[key] = np.array(msg.data).astype(np.float32)
-            else:
-                raise NotImplementedError
-
+    def timer_callback(self, event):
+        for self.obs_key in self.obs_keys:
+            if self.obs_dict_buf[self.obs_key] is None:
+                return
+        print("callback time: ", time.time() - self.callback_start)
+        self.callback_start = time.time()
         self.inference_start = time.time()
-        pred_action, _ = self.rollout(processed_obs)
+        pred_action, _ = self.rollout(self.obs_dict_buf)
+        pred_action = pred_action.tolist()
         if self.debug:
             print(
                 "running count: ",
                 self.index,
-                "callback time: ",
+                "inference time: ",
                 time.time() - self.inference_start,
             )
             print("pred action: ", pred_action)
-            print("real action: ", list(msgs[-1].data))
+            print("real action: ", self.debug_action)
         else:
             action_msg = Float32MultiArrayStamped()
             action_msg.header.stamp = rospy.Time.now()
