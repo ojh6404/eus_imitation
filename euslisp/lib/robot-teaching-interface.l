@@ -788,8 +788,7 @@
     ;; (send self :set-arm-val :rarm :hand-offset
     ;;   (scale 1000 (coerce (ros::get-param "/eus_imitation/r_hand_offset") float-vector)))
     (send self :set-val 'recording nil)
-    (send self :set-val 'finger-wait-count 5)
-    (send self :set-val 'voice-wait-count 5))
+    (send self :set-val 'finger-wait-count 5))
   (:hand-ros-init ()
       (if larm-hand-id
         (progn
@@ -812,10 +811,7 @@
   (:hand-reset-arm-val (arm)
     (send self :set-arm-val arm :finger nil)
     (send self :set-arm-val arm :prev-finger nil)
-    (send self :set-arm-val arm :finger-count 0)
-    (send self :set-arm-val arm :voice nil)
-    (send self :set-arm-val arm :prev-voice nil)
-    (send self :set-arm-val arm :voice-count 0))
+    (send self :set-arm-val arm :finger-count 0))
   (:hand-calib-controller (arm)
     (ros::ros-info "Calibrating controller ~A" arm)
     (send self :update-robot))
@@ -824,9 +820,7 @@
       target-coords))
   (:hand-controller-cb (arm msg) ;; NOTE no axes because it is not used
         (send self :set-arm-val arm :prev-finger (send self :get-arm-val arm :finger))
-        (send self :set-arm-val arm :finger (> (elt (send msg :buttons) 0) 0))
-        (send self :set-arm-val arm :prev-voice (send self :get-arm-val arm :voice))
-        (send self :set-arm-val arm :voice (> (elt (send msg :buttons) 1) 0)))
+        (send self :set-arm-val arm :finger (> (elt (send msg :buttons) 0) 0)))
   (:voice-cb (msg) ;; TODO
         (let* (req res (text (elt (send msg :transcript) 0))
                (arm :rarm) ;; TODO
@@ -854,6 +848,7 @@
                  (if (not record-p) ;; if not recording, start recording
                      (progn
                        (ros::ros-info "recording start")
+                       (unix:usleep (* 1000 1000)) ;; wait for a second
                        (ros::wait-for-service record-trigger-service-name 1)
                        (setq req (instance std_srvs::TriggerRequest :init))
                        (setq res (ros::service-call record-trigger-service-name req nil))
@@ -867,8 +862,6 @@
                        (send self :calib-controller arm))))
                 (t (ros::ros-warn "Unknown voice command: ~A" text)))))
   (:hand-button-cb ()
-    ;; (send self :enable-cb :larm :mirror nil :button :red) ;; check trackpad button to enable/disable arm
-    ;; (send self :enable-cb :rarm :mirror nil :button :voice) ;; check trackpad button to enable/disable arm
     ;; (send self :record-cb :button :voice)
     (send self :gripper-cb :larm :wait nil :button :finger) ;; check trigger button to close gripper
     (send self :gripper-cb :rarm :wait nil :button :finger)) ;; check trigger button to close gripper
