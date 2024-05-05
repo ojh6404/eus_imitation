@@ -10,13 +10,15 @@ import numpy as np
 import h5py
 from moviepy.editor import ImageSequenceClip
 from tunable_filter.composite_zoo import HSVBlurCropResolFilter
+from scipy.signal import savgol_filter
+import pandas as pd
 
 import rospy
 import rosbag
 import message_filters
 from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image, JointState
-from eus_imitation.msg import Float32MultiArrayStamped
+from eus_imitation.msg import FloatVector
 
 import imitator.utils.ros_utils as RosUtils
 import imitator.utils.file_utils as FileUtils
@@ -24,6 +26,7 @@ import imitator.utils.file_utils as FileUtils
 FLAGS = flags.FLAGS
 flags.DEFINE_string("project_name", None, "Name of the project to load config from.")
 flags.DEFINE_string("rosbag_dir", None, "Name of the project to load config from.")
+flags.DEFINE_bool("filter", False, "Whether to filter data.")
 flags.DEFINE_bool(
     "image_tune",
     False,
@@ -36,6 +39,16 @@ flags.DEFINE_float("ratio", 0.1, "Ratio of validation data.")
 # for no roscore
 rospy.Time = RosUtils.PatchTimer
 
+def zscore(s, window, thresh=3, return_all=False):
+    roll = s.rolling(window=window, min_periods=1, center=True)
+    avg = roll.mean()
+    std = roll.std(ddof=0)
+    z = s.sub(avg).div(std)
+    m = z.between(-thresh, thresh)
+
+    if return_all:
+        return z, avg, std, m
+    return s.where(m, avg)
 
 def main(_):
     config = FileUtils.get_config_from_project_name(FLAGS.project_name)
@@ -208,6 +221,21 @@ def main(_):
             )
         else:
             raise NotImplementedError
+
+        if FLAGS.filter:
+            # action_data is (T, D)
+            # remove time siries outlier using moving average
+
+
+
+
+            
+
+            # filter data
+            action_data = savgol_filter(
+                action_data, window_length=5, polyorder=3, axis=0
+            )
+
         demo.create_dataset(
             "actions",
             data=action_data,
