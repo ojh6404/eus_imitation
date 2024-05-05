@@ -15,7 +15,7 @@ import message_filters
 from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
 from imitator.utils import file_utils as FileUtils
-from eus_imitation.msg import Float32MultiArrayStamped
+from eus_imitation.msg import FloatVector
 
 from octo.model.octo_model import OctoModel
 
@@ -78,7 +78,7 @@ class OctoROSRollout(object):
             self.obs_dict_buf[obs_key] = self.image_tuner(
                 self.bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
             )
-        elif self.cfg.obs[obs_key].msg_type == "Float32MultiArrayStamped":
+        elif self.cfg.obs[obs_key].msg_type == "FloatVector":
             self.obs_dict_buf[obs_key] = np.array(msg.data).astype(np.float32)
         else:
             raise NotImplementedError
@@ -92,7 +92,7 @@ class OctoROSRollout(object):
 
         # publishers
         self.pub_action = rospy.Publisher(
-            "/eus_imitation/robot_action", Float32MultiArrayStamped, queue_size=1
+            "/eus_imitation/robot_action", FloatVector, queue_size=1
         )  # TODO
         self.pub_image_obs = [
             rospy.Publisher("/eus_imitation/" + image_obs, Image, queue_size=1)
@@ -113,7 +113,7 @@ class OctoROSRollout(object):
         if self.debug:
             self.sub_obs.append(
                 rospy.Subscriber(
-                    "/eus_imitation/robot_action", Float32MultiArrayStamped, self.action_callback, queue_size=1
+                    "/eus_imitation/robot_action", FloatVector, self.action_callback, queue_size=1
                 )
             )
 
@@ -173,7 +173,7 @@ class OctoROSRollout(object):
             print("pred action: ", pred_action)
             print("real action: ", self.debug_action)
         else:
-            action_msg = Float32MultiArrayStamped()
+            action_msg = FloatVector()
             action_msg.header.stamp = rospy.Time.now()
             action_msg.data = pred_action.tolist()
             self.pub_action.publish(action_msg)

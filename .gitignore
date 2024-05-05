@@ -8,3 +8,6 @@ tmp/
 data/
 
 *.pyc
+
+wandb/
+models/

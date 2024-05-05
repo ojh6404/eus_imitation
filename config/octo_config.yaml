@@ -53,7 +53,7 @@ obs: # input into policy
       freeze: False
   proprio:
     topic_name: "/eus_imitation/robot_state"
-    msg_type: "Float32MultiArrayStamped"
+    msg_type: "FloatVector"
     modality: "FloatVectorModality"
     normalize: True
     obs_encoder:
@@ -64,7 +64,7 @@ obs: # input into policy
 actions:
   type: "proprio_trajectory"
   topic_name: "/eus_imitation/robot_action"
-  msg_type: "Float32MultiArrayStamped"
+  msg_type: "FloatVector"
   modality: "FloatVectorModality"
   dim: 4 # x,y,z, gripper
   normalize: True

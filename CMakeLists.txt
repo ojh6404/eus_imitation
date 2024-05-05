@@ -11,7 +11,7 @@ find_package(catkin
 
 add_message_files(
   FILES
-  Float32MultiArrayStamped.msg
+  FloatVector.msg
 )
 
 generate_messages(

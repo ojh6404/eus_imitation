@@ -14,7 +14,7 @@ from cv_bridge import CvBridge
 
 from imitator.utils import file_utils as FileUtils
 from imitator.utils.env_utils import RolloutBase
-from eus_imitation.msg import Float32MultiArrayStamped
+from eus_imitation.msg import FloatVector
 
 
 class ROSRollout(RolloutBase):
@@ -42,7 +42,7 @@ class ROSRollout(RolloutBase):
 
         # publishers
         self.pub_action = rospy.Publisher(
-            "/eus_imitation/robot_action", Float32MultiArrayStamped, queue_size=1
+            "/eus_imitation/robot_action", FloatVector, queue_size=1
         )  # TODO
         self.pub_image_obs = [
             rospy.Publisher("/eus_imitation/" + image_obs, Image, queue_size=10)
@@ -60,7 +60,7 @@ class ROSRollout(RolloutBase):
         if self.debug:
             self.sub_obs.append(
                 message_filters.Subscriber(
-                    "/eus_imitation/robot_action", Float32MultiArrayStamped
+                    "/eus_imitation/robot_action", FloatVector
                 )
             )
         self.obs_ts = message_filters.ApproximateTimeSynchronizer(
@@ -72,7 +72,7 @@ class ROSRollout(RolloutBase):
 
     def rollout(self, obs: Dict[str, Any]) -> None:
         pred_action = super(ROSRollout, self).rollout(obs)
-        action_msg = Float32MultiArrayStamped()
+        action_msg = FloatVector()
         action_msg.header.stamp = rospy.Time.now()
         action_msg.data = pred_action.tolist()
         self.pub_action.publish(action_msg)
@@ -97,7 +97,7 @@ class ROSRollout(RolloutBase):
                 processed_obs[key] = self.image_tuner(
                     self.bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
                 )
-            elif self.cfg.obs[key].msg_type == "Float32MultiArrayStamped":
+            elif self.cfg.obs[key].msg_type == "FloatVector":
                 processed_obs[key] = np.array(msg.data).astype(np.float32)
             else:
                 raise NotImplementedError
