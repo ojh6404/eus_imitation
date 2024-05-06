@@ -184,6 +184,17 @@ def main(_):
         # action
         if config.actions.type == "action_trajectory":
             action_data = np.array(action_buf)
+
+            if FLAGS.filter:
+                grasp_data = action_data[:, -1]
+                grasp_data = pd.Series(grasp_data)
+                z, avg, std, m =  zscore(grasp_data, 5, thresh=1, return_all=True)
+                action_data[:, -1] = avg.values
+
+                # grasp is 0 or 1, 1 if > 0.7
+                action_data[:, -1] = (action_data[:, -1] > 0.7).astype(np.float32)
+
+
         elif config.actions.type == "proprio_trajectory":
             action_data = np.diff(np.array(obs_buf["proprio"]), axis=0)
             # repeat last action
