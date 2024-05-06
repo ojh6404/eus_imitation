@@ -1,5 +1,5 @@
 ros:
-  rate: 10
+  rate: 5
   action_type: "IK" # TODO
   message_filters:
     slop: 0.1
@@ -7,6 +7,7 @@ ros:
   additional_topics:
     - "/tf"
     - "/joint_states"
+    - "/kinect_head/rgb/image_rect_color/compressed"
     - "/kinect_head/depth_registered/image_rect/compressedDepth"
     - "/kinect_head/rgb/camera_info"
     - "/eus_imitation/l_arm_state"
@@ -17,12 +18,24 @@ ros:
     - "/spacenav/joy"
     - "/controller_LHR_FD35BD42/joy"
     - "/controller_LHR_F7AFBF47/joy"
-    - "/tracking_ros/segmentor/output/boxes"
-    - "/tracking_ros/segmentor/output/centroid"
+    - "/remote/segmentor/output/boxes"
+    - "/remote/segmentor/output/centroid"
+    - "/eus_imitation/hand_joy_node/left_hand/joy"
+    - "/eus_imitation/hand_joy_node/right_hand/joy"
+    - "/cutie_node/output/masked_image/compressed"
+    - "/cutie_node/output/mask_rgb_image/compressed"
+    - "/hand/mask_rgb_image/compressed"
+    - "/eus_imitation/hand_joy_node/hand_distance"
+    - "/hand_3d_node/hand_pose"
+    - "/hand_object_detection_node/debug_image"
+    - "/hand_object_detection_node/hand_detections"
+    - "/acr_hand_mocap_node/debug_image"
+    - "/acr_hand_mocap_node/hand_detections"
+
 
 obs: # input into policy
   head_image:
-    topic_name: "/kinect_head/rgb/image_rect_color/compressed"
+    topic_name: "/cutie_node/output/mask_rgb_image/compressed"
     msg_type: "CompressedImage"
     modality: "ImageModality"
     normalize: True
@@ -57,16 +70,16 @@ obs: # input into policy
     modality: "FloatVectorModality"
     normalize: True
     obs_encoder:
-      input_dim: 4 # x,y,z, gripper
-      output_dim: 4
+      input_dim: 7 # x,y,z,r,p,y,grasp
+      output_dim: 7
       layer_dims: null
       activation: "ReLU" # [ReLU, Tanh...]
 actions:
-  type: "proprio_trajectory"
+  type: "action_trajectory"
   topic_name: "/eus_imitation/robot_action"
   msg_type: "FloatVector"
   modality: "FloatVectorModality"
-  dim: 4 # x,y,z, gripper
+  dim: 7 # x,y,z,r,p,y,grasp
   normalize: True
 task:
   language_instruction: "Pick up the bread on the table"

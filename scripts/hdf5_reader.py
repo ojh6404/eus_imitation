@@ -60,6 +60,7 @@ def main(args):
     if "actions" in f["data"][demos[0]].keys():
         print("Actions: {}".format(f["data"][demos[0]]["actions"]))
         print("First action data: {}".format(f["data"][demos[0]]["actions"][0]))
+        print("Second action data: {}".format(f["data"][demos[0]]["actions"][1]))
     print("=============================")
 
     print("=============================")
@@ -71,7 +72,11 @@ def main(args):
         print("Obs: {}".format(obs))
         print("Shape: {}".format(f["data"][demos[0]]["obs"][obs].shape))
         print("Type: {}".format(f["data"][demos[0]]["obs"][obs].dtype))
-        print("First data: {}".format(f["data"][demos[0]]["obs"][obs][0]))
+        if "image" in obs:
+            Image.fromarray(f["data"][demos[0]]["obs"][obs][0]).show()
+        else:
+            print("First data: {}".format(f["data"][demos[0]]["obs"][obs][0]))
+            print("Second data: {}".format(f["data"][demos[0]]["obs"][obs][1]))
         print("")
     for attr_name in f["data"].attrs.keys():
         if "obs_max" in attr_name:
@@ -94,10 +99,10 @@ def main(args):
         action_dim = f["data"][demos[0]]["actions"].shape[-1]
         data = f["data"][demos[0]]["actions"]
         fig_action = plt.figure()
+        fig_action.suptitle("Actions")
         for i in range(action_dim):
             plt.subplot(action_dim, 1, i + 1)
             plt.plot(data[:, i])
-        # plt.show()
 
         # obs
         for obs in f["data"][demos[0]]["obs"].keys():
@@ -115,9 +120,11 @@ def main(args):
                 print("Float observation: {}, Shape: {}".format(obs, obs_dim))
                 data = f["data"][demos[0]]["obs"][obs]
                 fig_obs = plt.figure()
+                fig_obs.suptitle(obs)
                 for i in range(obs_dim):
                     plt.subplot(obs_dim, 1, i + 1)
                     plt.plot(data[:, i])
+                plt.title(obs)
                 plt.show()
     f.close()
 

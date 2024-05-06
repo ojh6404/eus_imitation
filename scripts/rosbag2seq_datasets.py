@@ -35,6 +35,7 @@ flags.DEFINE_bool(
 flags.DEFINE_string("vis_image", "head_image", "Image key to visualize for checking.")
 flags.DEFINE_bool("gif", False, "Whether to save gif.")
 flags.DEFINE_float("ratio", 0.1, "Ratio of validation data.")
+flags.DEFINE_bool("action_is_state", False, "Whether action is state.")
 
 # for no roscore
 rospy.Time = RosUtils.PatchTimer
@@ -172,6 +173,7 @@ def main(_):
         demo = demo_group.create_group("demo_{}".format(i))
         bag_reader = rosbag.Bag(bag, skip_index=True)
 
+        # get action and obs buffer
         for message_idx, (topic, msg, t) in enumerate(
             bag_reader.read_messages(topics=topics)
         ):
@@ -179,6 +181,36 @@ def main(_):
             if subscriber:
                 subscriber.signalMessage(msg)
 
+        # action
+        if config.actions.type == "action_trajectory":
+            action_data = np.array(action_buf)
+        elif config.actions.type == "proprio_trajectory":
+            action_data = np.diff(np.array(obs_buf["proprio"]), axis=0)
+            # repeat last action
+            action_data = np.concatenate(
+                [action_data, action_data[-1:]], axis=0
+            )
+        else:
+            raise NotImplementedError
+        if FLAGS.action_is_state:
+            # repeat first action so proprio is before action
+            obs_buf["proprio"] = np.concatenate(
+                [action_data[:1], action_data[:-1]], axis=0
+            )
+            assert len(obs_buf["proprio"]) == len(action_data)
+        demo.create_dataset(
+            "actions",
+            data=action_data,
+            dtype=action_data.dtype,
+        )
+        if action_min is None:
+            action_min = np.min(action_data, axis=0)
+            action_max = np.max(action_data, axis=0)
+        else:
+            action_min = np.minimum(action_min, np.min(action_data, axis=0))
+            action_max = np.maximum(action_max, np.max(action_data, axis=0))
+
+        # obs
         for obs_key, obs_data in obs_buf.items():
             obs_data = np.array(obs_data)
             next_obs_data = np.concatenate(
@@ -206,48 +238,6 @@ def main(_):
                     obs_min_buf[obs_key] = np.minimum(
                         obs_min_buf[obs_key], np.min(obs_data, axis=0)
                     )
-
-
-        # action : proprio_trajectory, action_trajectory
-        # if proprio_trajectory, action will be delta of trajectory of proprio
-        # if action_trajectory, action will be trajectory of action
-        if config.actions.type == "action_trajectory":
-            action_data = np.array(action_buf)
-        elif config.actions.type == "proprio_trajectory":
-            action_data = np.diff(np.array(obs_buf["proprio"]), axis=0)
-            # repeat last action
-            action_data = np.concatenate(
-                [action_data, action_data[-1:]], axis=0
-            )
-        else:
-            raise NotImplementedError
-
-        if FLAGS.filter:
-            # action_data is (T, D)
-            # remove time siries outlier using moving average
-
-
-
-
-            
-
-            # filter data
-            action_data = savgol_filter(
-                action_data, window_length=5, polyorder=3, axis=0
-            )
-
-        demo.create_dataset(
-            "actions",
-            data=action_data,
-            dtype=action_data.dtype,
-        )
-
-        if action_min is None:
-            action_min = np.min(action_data, axis=0)
-            action_max = np.max(action_data, axis=0)
-        else:
-            action_min = np.minimum(action_min, np.min(action_data, axis=0))
-            action_max = np.maximum(action_max, np.max(action_data, axis=0))
 
         assert len(obs_data) == len(
             action_data
