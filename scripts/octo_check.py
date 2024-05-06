@@ -108,21 +108,36 @@ def main(args, config):
 
     #pred_actions, _ = octo_model.rollout(f["data/{}".format(demos[0])]["obs"])
     demos = sort_names_by_number(f["data"].keys())
-    # get first demo
-    demo = f["data/{}".format(demos[0])]
-    obs_keys = list(demo["obs"].keys())
-    actions = demo["actions"]
+    # get several demo
+    for j in range(10):
+        demo = f["data/{}".format(demos[j])]
+        obs_keys = list(demo["obs"].keys())
+        actions = demo["actions"]
 
-    start_time = time.time()
-    np.set_printoptions(precision=3)
-    for i in range(len(actions)):
-        action = actions[i]
-        obs_dict = {obs_key: demo["obs/{}".format(obs_key)][i] for obs_key in obs_keys}
+        pred_actions = []
 
-        pred_action, _ = octo_model.rollout(obs_dict)
-        print("time: ", time.time() - start_time)
-        print(f"pred action: {pred_action}, real action: {action}, diff: {pred_action - action}")
         start_time = time.time()
+        np.set_printoptions(precision=3)
+        for i in range(len(actions)):
+            action = actions[i]
+            obs_dict = {obs_key: demo["obs/{}".format(obs_key)][i] for obs_key in obs_keys}
+
+            pred_action, _ = octo_model.rollout(obs_dict)
+            pred_actions.append(pred_action)
+            print("time: ", time.time() - start_time)
+            print(f"pred action: {pred_action}, real action: {action}, diff: {pred_action - action}")
+            start_time = time.time()
+
+        # plot and save
+        pred_actions = np.array(pred_actions)
+        fig_action = plt.figure()
+        fig_action.suptitle("action")
+        for i in range(pred_actions.shape[1]): # for each action dimension
+            plt.subplot(pred_actions.shape[1], 1, i + 1)
+            plt.plot(actions[:, i], label="real")
+            plt.plot(pred_actions[:, i], label="pred")
+            plt.legend()
+        plt.savefig(f"octo_action_{args.project_name}_{j}.png")
 
     f.close()
 
