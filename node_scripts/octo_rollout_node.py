@@ -45,6 +45,7 @@ class OctoROSRollout(object):
         self.model = model
 
         self.instruction = cfg.task.language_instruction
+        self.instruction ="Pick up the string on the left side"
         self.task = self.model.create_tasks(texts=[self.instruction])
 
         self.index = 0
@@ -162,20 +163,20 @@ class OctoROSRollout(object):
         self.callback_start = time.time()
         self.inference_start = time.time()
         pred_action, _ = self.rollout(self.obs_dict_buf)
+        print(
+            "running count: ",
+            self.index,
+            "inference time: ",
+            time.time() - self.inference_start,
+        )
         pred_action = pred_action.tolist()
         if self.debug:
-            print(
-                "running count: ",
-                self.index,
-                "inference time: ",
-                time.time() - self.inference_start,
-            )
             print("pred action: ", pred_action)
             print("real action: ", self.debug_action)
         else:
             action_msg = FloatVector()
             action_msg.header.stamp = rospy.Time.now()
-            action_msg.data = pred_action.tolist()
+            action_msg.data = pred_action
             self.pub_action.publish(action_msg)
 
 

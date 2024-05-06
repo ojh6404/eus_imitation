@@ -71,7 +71,8 @@ def main(_):
     logging.info("Loading finetuning dataset...")
     dataset = make_single_dataset(
         dataset_kwargs=dict(
-            name=FLAGS.project_name,
+            # name=FLAGS.project_name,
+            name="imitator_dataset",
             data_dir=FLAGS.data_dir,
             image_obs_keys={"primary": FLAGS.primary_image_obs},
             state_obs_keys=["proprio"],  # TODO
