@@ -476,12 +476,14 @@
 
   ;; for spacenav controller
   (:spacenav-init ()
+    ;; (send self :set-val 'pos-scale 100)
+    ;; (send self :set-val 'rot-scale (/ pi 4))
     (send self :set-val 'pos-scale 100)
-    (send self :set-val 'rot-scale (/ pi 4))
+    (send self :set-val 'rot-scale (/ pi 8))
     (send self :set-val 'spacenav-joy-topic-name "/spacenav/joy") ;; TODO only consider one spacenav now
     (send self :set-val 'left-wait-count 5)
     (send self :set-val 'right-wait-count 5)
-    (send self :set-val 'spacenav-joy-axes-threshold 0.2))
+    (send self :set-val 'spacenav-joy-axes-threshold 0.4))
   (:spacenav-ros-init ()
     (ros::subscribe spacenav-joy-topic-name
                     sensor_msgs::Joy #'send self :spacenav-controller-cb :rarm) ;; TODO currently only rarm
