@@ -188,7 +188,7 @@ def main(_):
             if FLAGS.filter:
                 grasp_data = action_data[:, -1]
                 grasp_data = pd.Series(grasp_data)
-                z, avg, std, m =  zscore(grasp_data, 5, thresh=1, return_all=True)
+                z, avg, std, m =  zscore(grasp_data, 5, thresh=0.7, return_all=True)
                 action_data[:, -1] = avg.values
 
                 # grasp is 0 or 1, 1 if > 0.7
