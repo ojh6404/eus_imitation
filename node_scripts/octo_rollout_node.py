@@ -118,6 +118,10 @@ class OctoROSRollout(object):
                 )
             )
 
+
+        topic_names = [self.cfg.obs[key].topic_name for key in self.obs_keys]
+        rospy.loginfo("Subscribing to topics: {}".format(topic_names))
+
         # rospy Timer Callback
         self.callback_start = time.time()
         self.timer = rospy.Timer(rospy.Duration(1 / self.rate), self.timer_callback)

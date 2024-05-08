@@ -10,19 +10,13 @@ import matplotlib.pyplot as plt
 
 from imitator.utils.file_utils import sort_names_by_number
 from imitator.utils import file_utils as FileUtils
-from imitator.utils import tensor_utils as TensorUtils
 
 import time
 from typing import Any, Dict
 from collections import OrderedDict
 from functools import partial
 
-import numpy as np
-# from tunable_filter.composite_zoo import HSVBlurCropResolFilter
-
 from octo.model.octo_model import OctoModel
-
-# debug script for octo with dataset
 
 def jax_has_gpu():
     try:
