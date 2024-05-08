@@ -1,0 +1,30 @@
+<launch>
+  <arg name="filename"/>
+
+  <node name="rosbag_record"
+    pkg="rosbag" type="record"
+    args="-b 0
+
+    /tf
+    /tf_static
+
+    /kinect_head/rgb/camera_info
+    /kinect_head/rgb/image_rect_color/compressed
+    /kinect_head/rgb/image_rect_mono/compressed
+
+    /joint_states
+    /r_gripper_controller/state
+    /eus_imitation/robot_action
+    /eus_imitation/robot_state
+
+    /eus_imitation/data_collector/record
+
+    -O $(arg filename)" output="screen">
+  </node>
+</launch>
+
+    <!-- /pr2_data_augmentation/camera_info
+    /pr2_data_augmentation/color_changed_image/compressed
+    /pr2_data_augmentation/image_rect_color/compressed
+    /pr2_data_augmentation/processed_image/compressed
+    /pr2_data_augmentation/segmentation_mask -->

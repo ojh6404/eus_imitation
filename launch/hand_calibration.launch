@@ -1,0 +1,34 @@
+<launch>
+  <arg name="input_image" default="/kinect_head/rgb/image_rect_color" />
+  <arg name="camera_info" default="/kinect_head/rgb/camera_info" />
+  <arg name="speech_to_text" default="/speech_to_text" />
+  <arg name="queue_size" default="1" />
+  <arg name="decompress" default="true" />
+  <arg name="launch_prefix" default="" />
+
+  <arg name="_input_image" value="/kinect_head/rgb/decompressed_image" if="$(arg decompress)"/>
+  <arg name="_input_image" value="$(arg input_image)" unless="$(arg decompress)"/>
+
+  <node name="image_transport" pkg="image_transport" type="republish" args="compressed">
+    <remap from="in" to="$(arg input_image)"/>
+    <remap from="out" to="$(arg _input_image)"/>
+  </node>
+
+  <!-- hand calibration node -->
+  <node pkg="eus_imitation" name="hand_calibration_node" type="hand_calibration_node.py" output="screen">
+    <remap from="~speech_to_text" to="$(arg speech_to_text)"/>
+  </node>
+
+  <!-- apriltag_ros continuous detection node -->
+  <node pkg="apriltag_ros" type="apriltag_ros_continuous_node" name="apriltag_ros_continuous_node" clear_params="true" output="screen" launch-prefix="$(arg launch_prefix)">
+    <remap from="image_rect" to="$(arg _input_image)" />
+    <remap from="camera_info" to="$(arg camera_info)" />
+    <param name="publish_tag_detections_image" type="bool" value="true" /><!-- default: false -->
+    <param name="queue_size" type="int" value="$(arg queue_size)" />
+    <rosparam command="load" file="$(find eus_imitation)/config/apriltags/settings.yaml"/>
+    <rosparam command="load" file="$(find eus_imitation)/config/apriltags/tracker_tags.yaml" />
+  </node>
+
+  <!-- visualization node -->
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find eus_imitation)/rviz/hand_calibration.rviz" output="screen" />
+</launch>

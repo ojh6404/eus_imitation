@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>eus_imitation</name>
+  <version>0.0.10</version>
+  <description>Robot teaching and imitation project for euslisp interface</description>
+
+  <maintainer email="oh@jsk.imi.i.u-tokyo.ac.jp">Jihoon Oh</maintainer>
+  <author email="oh@jsk.imi.i.u-tokyo.ac.jp">Jihoon Oh</author>
+
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>message_generation</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>catkin_virtualenv</build_depend>
+
+  <exec_depend>actionlib_msgs</exec_depend>
+  <exec_depend>baxter_core_msgs</exec_depend>
+  <exec_depend>baxtereus</exec_depend>
+  <exec_depend>jsk_topic_tools</exec_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>pr2eus</exec_depend>
+  <exec_depend>roseus</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>softhand_ros</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
+  <exec_depend>vive_ros</exec_depend>
+  <exec_depend>pr2_moveit_config</exec_depend>
+
+  <export>
+      <pip_requirements>requirements.txt</pip_requirements>
+  </export>
+
+</package>
