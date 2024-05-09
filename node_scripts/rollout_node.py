@@ -3,12 +3,12 @@ import os
 import time
 from typing import Any, Dict
 from collections import OrderedDict
+from functools import partial
 
 import numpy as np
 from tunable_filter.composite_zoo import HSVBlurCropResolFilter
 
 import rospy
-import message_filters
 from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
 
@@ -33,11 +33,23 @@ class ROSRollout(RolloutBase):
         rospy.loginfo("PolicyExecutorNode initialized")
         self.inference_start = time.time()
 
+    def obs_callback(self, obs_key, msg):
+        if self.cfg.obs[obs_key].msg_type == "Image":
+            self.obs_dict_buf[obs_key] = self.image_tuner(
+                self.bridge.imgmsg_to_cv2(msg, "rgb8")
+            )
+        elif self.cfg.obs[obs_key].msg_type == "CompressedImage":
+            self.obs_dict_buf[obs_key] = self.image_tuner(
+                self.bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
+            )
+        elif self.cfg.obs[obs_key].msg_type == "FloatVector":
+            self.obs_dict_buf[obs_key] = np.array(msg.data).astype(np.float32)
+        else:
+            raise NotImplementedError
+
     def ros_init(self):
         self.rate = self.cfg.ros.rate
         self.debug = self.cfg.ros.debug
-        self.queue_size = self.cfg.ros.message_filters.queue_size
-        self.slop = self.cfg.ros.message_filters.slop
         self.bridge = CvBridge()
 
         # publishers
@@ -45,38 +57,32 @@ class ROSRollout(RolloutBase):
             "/eus_imitation/robot_action", FloatVector, queue_size=1
         )  # TODO
         self.pub_image_obs = [
-            rospy.Publisher("/eus_imitation/" + image_obs, Image, queue_size=10)
+            rospy.Publisher("/eus_imitation/" + image_obs, Image, queue_size=1)
             for image_obs in self.image_obs
         ]
 
         # subscribers
         self.sub_obs = [
-            message_filters.Subscriber(
+            rospy.Subscriber(
                 self.cfg.obs[key].topic_name,
                 eval(self.cfg.obs[key].msg_type),
+                partial(self.obs_callback, key),
+                queue_size=1,
+                buff_size=2 ** 24,
             )
             for key in self.obs_keys
         ]
+
         if self.debug:
             self.sub_obs.append(
-                message_filters.Subscriber(
-                    "/eus_imitation/robot_action", FloatVector
+                rospy.Subscriber(
+                    "/eus_imitation/robot_action", FloatVector, self.action_callback, queue_size=1
                 )
             )
-        self.obs_ts = message_filters.ApproximateTimeSynchronizer(
-            self.sub_obs,
-            self.queue_size,
-            self.slop,
-        )
-        self.obs_ts.registerCallback(self.obs_callback)
 
-    def rollout(self, obs: Dict[str, Any]) -> None:
-        pred_action = super(ROSRollout, self).rollout(obs)
-        action_msg = FloatVector()
-        action_msg.header.stamp = rospy.Time.now()
-        action_msg.data = pred_action.tolist()
-        self.pub_action.publish(action_msg)
-        return pred_action
+        # rospy Timer Callback
+        self.callback_start = time.time()
+        self.timer = rospy.Timer(rospy.Duration(1 / self.rate), self.timer_callback)
 
     def reset(self):
         super(ROSRollout, self).reset()
@@ -85,35 +91,58 @@ class ROSRollout(RolloutBase):
                 batch_size=1, device=self.device
             )
 
-    def obs_callback(self, *msgs) -> None:
-        # parse msgs into input obs
-        processed_obs = OrderedDict()
-        for key, msg in zip(self.obs_keys, msgs):
-            if self.cfg.obs[key].msg_type == "Image":
-                processed_obs[key] = self.image_tuner(
-                    self.bridge.imgmsg_to_cv2(msg, "rgb8")
-                )
-            elif self.cfg.obs[key].msg_type == "CompressedImage":
-                processed_obs[key] = self.image_tuner(
-                    self.bridge.compressed_imgmsg_to_cv2(msg, "rgb8")
-                )
-            elif self.cfg.obs[key].msg_type == "FloatVector":
-                processed_obs[key] = np.array(msg.data).astype(np.float32)
-            else:
-                raise NotImplementedError
+    def action_callback(self, msg):
+        self.debug_action = np.array(msg.data).astype(np.float32)
 
-        self.inference_start = time.time()
-        pred_action = self.rollout(processed_obs)
-        if self.debug:
-            print("=====================================================")
-            print(
-                "running count: {}, callback time: {}".format(
-                    self.index, time.time() - self.inference_start
-                )
+    def rollout(self, obs_dict: Dict[str, Any]) -> None:
+        proprio = obs_dict["proprio"]
+        proprio = (proprio - self.proprio_stats["mean"]) / (
+            self.proprio_stats["std"] + 1e-8
+        )
+        head_image = obs_dict["head_image"]
+
+        obs = {
+            "image_primary": head_image[None, None],
+            "proprio": proprio[None, None],
+            "pad_mask": np.asarray([[True]]),  # TODO only for window size 1
+        }
+
+        if self.index % self.update_interval == 0:
+            actions = self.policy_fn(
+                jax.tree_map(lambda x: x, obs), self.task, rng=jax.random.PRNGKey(0)
             )
-            print("pred action: {}".format(pred_action.tolist()))
-            print("real action: {}".format(list(msgs[-1].data)))
-            print("=====================================================")
+            self.actions = actions
+
+        idx = self.index % self.update_interval
+        action = self.actions[0, idx] * self.act_stats["std"] + self.act_stats["mean"]
+        action = np.clip(action, self.act_stats["min"], self.act_stats["max"])
+
+        self.index += 1
+        return action, False
+
+    def timer_callback(self, event):
+        for self.obs_key in self.obs_keys:
+            if self.obs_dict_buf[self.obs_key] is None:
+                return
+        print("callback time: ", time.time() - self.callback_start)
+        self.callback_start = time.time()
+        self.inference_start = time.time()
+        pred_action, _ = self.rollout(self.obs_dict_buf)
+        print(
+            "running count: ",
+            self.index,
+            "inference time: ",
+            time.time() - self.inference_start,
+        )
+        pred_action = pred_action.tolist()
+        if self.debug:
+            print("pred action: ", pred_action)
+            print("real action: ", self.debug_action)
+        else:
+            action_msg = FloatVector()
+            action_msg.header.stamp = rospy.Time.now()
+            action_msg.data = pred_action
+            self.pub_action.publish(action_msg)
 
 
 if __name__ == "__main__":
