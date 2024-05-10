@@ -5,12 +5,7 @@ h5py
 torch
 torchvision
 git+https://github.com/ojh6404/imitator.git
-jax[cuda12_pip]==0.4.23 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-jaxlib==0.4.23
 # jax
-flax
-optax
-orbax
 psutil
 # flax == 0.7.5
 # optax == 0.1.5
