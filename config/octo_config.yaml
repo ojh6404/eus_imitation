@@ -35,7 +35,7 @@ ros:
 
 obs: # input into policy
   head_image:
-    topic_name: "/cutie_node/output/mask_rgb_image/compressed"
+    topic_name: "/kinect_head/rgb/image_rect_color/compressed"
     msg_type: "CompressedImage"
     modality: "ImageModality"
     normalize: True
@@ -70,7 +70,7 @@ obs: # input into policy
     modality: "FloatVectorModality"
     normalize: True
     obs_encoder:
-      input_dim: 7 # x,y,z,r,p,y,grasp
+      input_dim: 7 # x,y,z, gripper
       output_dim: 7
       layer_dims: null
       activation: "ReLU" # [ReLU, Tanh...]
@@ -79,10 +79,10 @@ actions:
   topic_name: "/eus_imitation/robot_action"
   msg_type: "FloatVector"
   modality: "FloatVectorModality"
-  dim: 7 # x,y,z,r,p,y,grasp
+  dim: 7 # x,y,z, gripper
   normalize: True
 task:
-  language_instruction: "Pick up the string"
+  language_instruction: "Pick up the bread on the table"
 
 network:
   policy:
