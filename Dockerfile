@@ -44,10 +44,6 @@ ENV LC_ALL C.UTF-8
 ENV ROS_DISTRO noetic
 
 
-RUN add-apt-repository ppa:deadsnakes/ppa -y && \
-    apt update && \
-    apt install -y python3.11 python3.11-distutils python3.11-venv
-
 
 # install ros core
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -45,6 +45,7 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("name", "experiment", "Experiment name.")
 flags.DEFINE_string("pretrained_path", "hf://rail-berkeley/octo-small", "Path to pre-trained Octo checkpoint directory.")
+flags.DEFINE_string("data_dir", None, "Path to finetuning dataset, in RLDS format.")
 flags.DEFINE_integer("window_size", 1, "Window size for finetuning dataset.")
 flags.DEFINE_integer("batch_size", 32, "Batch size for finetuning.")
 flags.DEFINE_bool("debug", False, "Debug config (no wandb logging)")
@@ -68,6 +69,8 @@ def main(_):
     FLAGS.config.pretrained_path = FLAGS.pretrained_path
     FLAGS.config.window_size = FLAGS.window_size
     FLAGS.config.batch_size = FLAGS.batch_size
+    if FLAGS.data_dir is not None:
+        FLAGS.config.dataset_kwargs.data_dir = FLAGS.data_dir
 
     logging.info(
         f"""

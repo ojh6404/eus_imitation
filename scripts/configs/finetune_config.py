@@ -15,9 +15,9 @@ def get_config(config_string="full,multimodal"):
 
     FINETUNING_KWARGS = {
         "name": "imitator_dataset",
-        "data_dir": "/home/user/tensorflow_datasets/imitator_dataset",
+        "data_dir": "/home/leus/tensorflow_datasets",
         "image_obs_keys": {"primary": "head_image", "wrist": None},
-        "state_obs_keys": ["state", "proprio"],
+        "state_obs_keys": ["proprio"],
         "language_key": "language_instruction",
         "action_proprio_normalization_type": "normal",
         # All actions are relative deltas, except for the last one (gripper) which is absolute
@@ -50,8 +50,6 @@ def get_config(config_string="full,multimodal"):
     max_steps = FieldReference(50000)
     # window_size = FieldReference(default=1)
     window_size = FieldReference(default=3)
-
-    print("window_size", window_size)
 
     config = dict(
         pretrained_path=placeholder(str),
