@@ -1,20 +1,17 @@
 #!/usr/bin/env python
 
-import os
 import time
 from typing import Any, Dict
-from collections import OrderedDict
 from functools import partial
+from omegaconf import OmegaConf
 
 import numpy as np
-from tunable_filter.composite_zoo import HSVBlurCropResolFilter
 import jax
+from tunable_filter.composite_zoo import HSVBlurCropResolFilter
 
 import rospy
-import message_filters
 from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
-from imitator.utils import file_utils as FileUtils
 from eus_imitation.msg import FloatVector
 
 from octo.model.octo_model import OctoModel
@@ -61,11 +58,7 @@ class OctoROSRollout(object):
 
         self.obs_dict_buf = {obs_key: None for obs_key in self.obs_keys}
 
-        self.image_tuner = HSVBlurCropResolFilter.from_yaml(
-            os.path.join(
-                FileUtils.get_config_folder(cfg.project_name), "image_filter.yaml"
-            )
-        )
+        self.image_tuner = HSVBlurCropResolFilter.from_yaml(cfg.image_config)
         self.ros_init()
         rospy.loginfo("PolicyExecutorNode initialized")
         self.inference_start = time.time()
@@ -87,8 +80,6 @@ class OctoROSRollout(object):
     def ros_init(self):
         self.rate = self.cfg.ros.rate
         self.debug = self.cfg.ros.debug
-        self.queue_size = self.cfg.ros.message_filters.queue_size
-        self.slop = self.cfg.ros.message_filters.slop
         self.bridge = CvBridge()
 
         # publishers
@@ -191,15 +182,18 @@ if __name__ == "__main__":
     parser.add_argument("-pn", "--project_name", type=str)
     parser.add_argument("-ckpt", "--checkpoint", type=str)
     parser.add_argument("-step", "--step", type=int)
+    parser.add_argument("-conf", "--config", type=str)
+    parser.add_argument("-img_conf", "--image_config", type=str)
     parser.add_argument("--debug", action="store_true", default=False)
     args = parser.parse_args()
 
-    config = FileUtils.get_config_from_project_name(args.project_name)
+    config = OmegaConf.load(args.config)
     config.network.policy.checkpoint = args.checkpoint
     config.project_name = args.project_name
     config.ros.debug = args.debug
     config.checkpoint_step = args.step
     config.checkpoint_path = args.checkpoint
+    config.image_config = args.image_config
 
     rospy.init_node("rollout_node")
     rospy.loginfo("RolloutNode start")
