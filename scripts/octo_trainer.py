@@ -82,7 +82,7 @@ def main(_):
         ),
         traj_transform_kwargs=dict(
             window_size=FLAGS.window_size,
-            future_action_window_size=FLAGS.pred_horizon - FLAGS.window_size,
+            future_action_window_size=10,
         ),
         frame_transform_kwargs=dict(
             resize_size={"primary": imitator_config.obs[FLAGS.primary_image_obs].obs_encoder.input_dim[:2]},

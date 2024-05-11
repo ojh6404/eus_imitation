@@ -129,8 +129,8 @@ class OctoROSRollout(object):
         head_image = obs_dict["head_image"]
 
         obs = {
-            "image_primary": head_image[None, None],
-            "proprio": proprio[None, None],
+            "image_primary": head_image[None, None],    # [1, WINDOW_SIZE, H, W, C]
+            "proprio": proprio[None, None],             # [1, WINDOW_SIZE, 7]
             "pad_mask": np.asarray([[True]]),  # TODO only for window size 1
         }
 

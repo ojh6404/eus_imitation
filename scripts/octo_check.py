@@ -52,7 +52,7 @@ class OctoRollout(object):
         self.task = self.model.create_tasks(texts=[self.instruction])
 
         self.index = 0
-        self.update_interval = 1
+        self.update_interval = 1 #
 
         self.cfg = cfg
         self.obs_keys = list(cfg.obs.keys())

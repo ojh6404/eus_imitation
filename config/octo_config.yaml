@@ -82,7 +82,7 @@ actions:
   dim: 7 # x,y,z, gripper
   normalize: True
 task:
-  language_instruction: "Pick up the bread on the table"
+  language_instruction: "Pick up the blue ring"
 
 network:
   policy:
