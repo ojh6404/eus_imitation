@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 
-import os
 import jax
 import h5py
 import numpy as np
 import argparse
-from PIL import Image
 import matplotlib.pyplot as plt
-
-from imitator.utils.file_utils import sort_names_by_number
-from imitator.utils import file_utils as FileUtils
+from omegaconf import OmegaConf
+import re
 
 import time
 from typing import Any, Dict
-from collections import OrderedDict
-from functools import partial
-
 from octo.model.octo_model import OctoModel
+
+def extract_number(name):
+    match = re.search(r"\d+", name)
+    if match:
+        return int(match.group())
+    else:
+        return 0
+
+
+def sort_names_by_number(names):
+    sorted_names = sorted(names, key=extract_number)
+    return sorted_names
+
 
 def jax_has_gpu():
     try:
@@ -100,7 +107,6 @@ def main(args, config):
 
     f = h5py.File(args.dataset, "r")
 
-    #pred_actions, _ = octo_model.rollout(f["data/{}".format(demos[0])]["obs"])
     demos = sort_names_by_number(f["data"].keys())
     # get several demo
     for j in range(10):
@@ -143,14 +149,13 @@ if __name__ == "__main__":
     parser.add_argument("-pn", "--project_name", type=str)
     parser.add_argument("-ckpt", "--checkpoint", type=str)
     parser.add_argument("-step", "--step", type=int)
-    parser.add_argument("--dataset", type=str)
-    parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("-conf", "--config", type=str)
+    parser.add_argument("-d", "--dataset", type=str)
     args = parser.parse_args()
 
-    config = FileUtils.get_config_from_project_name(args.project_name)
+    config = OmegaConf.load(args.config)
     config.network.policy.checkpoint = args.checkpoint
     config.project_name = args.project_name
-    config.ros.debug = args.debug
     config.checkpoint_step = args.step
     config.checkpoint_path = args.checkpoint
 
