@@ -45,7 +45,7 @@ def main(_):
 
     imitator_config = OmegaConf.load("config/octo_config.yaml")
     if FLAGS.save_dir is None:
-        FLAGS.save_dir = os.path.join("/home/leus", ".imitator", FLAGS.project_name, "octo_models")
+        FLAGS.save_dir = os.path.join(os.path.expanduser("~"), ".imitator", FLAGS.project_name, "octo_models")
         os.makedirs(FLAGS.save_dir, exist_ok=True)
     if FLAGS.data_dir is None:
         # default is ~/tensorflow_datasets/imitator_dataset
