@@ -1,5 +1,4 @@
-ARG CUDA_VERSION=12.0
-FROM nvidia/cuda:${CUDA_VERSION}.1-devel-ubuntu20.04
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN rm /etc/apt/sources.list.d/cuda.list
 
@@ -88,11 +87,11 @@ ENV PATH="$PATH:$HOME/.local/bin"
 # Installing catkin package
 RUN mkdir -p ~/catkin_ws/src
 RUN sudo rosdep init && rosdep update && sudo apt update
-RUN git clone https://github.com/ojh6404/eus_imitation.git -b devel-moonshot ~/catkin_ws/src
+RUN git clone https://github.com/ojh6404/eus_imitation.git -b devel-moonshot ~/catkin_ws/src/eus_imitation
 RUN cd ~/catkin_ws/src/ &&\
     source /opt/ros/noetic/setup.bash &&\
     rosdep install --from-paths . -i -r -y &&\
-    cd ~/catkin_ws/src/tracking_ros && ./prepare.sh &&\
+    cd ~/catkin_ws/src/eus_imitation && ./prepare.sh &&\
     cd ~/catkin_ws && catkin init && catkin build &&\
     rm -rf ~/.cache/pip
 
