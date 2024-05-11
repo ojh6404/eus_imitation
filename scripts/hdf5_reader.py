@@ -3,11 +3,21 @@
 import h5py
 import numpy as np
 import argparse
+import re
 from PIL import Image
 import matplotlib.pyplot as plt
 
-from imitator.utils.file_utils import sort_names_by_number
+def extract_number(name):
+    match = re.search(r"\d+", name)
+    if match:
+        return int(match.group())
+    else:
+        return 0
 
+
+def sort_names_by_number(names):
+    sorted_names = sorted(names, key=extract_number)
+    return sorted_names
 
 def main(args):
     f = h5py.File(args.dataset, "r")
