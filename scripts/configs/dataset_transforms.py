@@ -23,6 +23,15 @@ from octo.data.utils.data_utils import (
     relabel_actions,
 )
 
+def imitator_dataset_transform(
+    trajectory: Dict[str, Any]
+) -> Dict[str, Any]:
+    trajectory["observation"]["eef_state"] = trajectory["observation"]["proprio"][:, :6] # x, y, z, roll, pitch, yaw
+    trajectory["observation"]["gripper_state"] = trajectory["observation"]["proprio"][
+        :, -1:
+    ]
+    # trajectory["action"] = trajectory["action"][...] # action is the action
+    return trajectory
 
 def bridge_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     # NOTE: this is not actually the official OXE copy of bridge, it is our own more up-to-date copy that you
@@ -532,15 +541,6 @@ def tokyo_pr2_tabletop_manipulation_dataset_transform(
     trajectory["action"] = trajectory["action"][..., :-1]
     return trajectory
 
-def imitator_dataset_transform(
-    trajectory: Dict[str, Any]
-) -> Dict[str, Any]:
-    trajectory["observation"]["eef_state"] = trajectory["observation"]["state"][:, :6] # x, y, z, roll, pitch, yaw
-    trajectory["observation"]["gripper_state"] = trajectory["observation"]["state"][
-        :, -1:
-    ]
-    # trajectory["action"] = trajectory["action"][...] # action is the action
-    return trajectory
 
 
 def utokyo_xarm_pick_place_dataset_transform(

@@ -8,6 +8,7 @@ RUN echo 'Etc/UTC' > /etc/timezone && \
     apt-get install -q -y --no-install-recommends tzdata && \
     rm -rf /var/lib/apt/lists/*
 
+
 # install essential packages
 RUN apt update && apt install -q -y --no-install-recommends \
     dirmngr \
@@ -41,6 +42,12 @@ RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sud
 ENV LANG C.UTF-8
 ENV LC_ALL C.UTF-8
 ENV ROS_DISTRO noetic
+
+
+RUN add-apt-repository ppa:deadsnakes/ppa -y && \
+    apt update && \
+    apt install -y python3.11 python3.11-distutils python3.11-venv
+
 
 # install ros core
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -87,6 +94,7 @@ ENV PATH="$PATH:$HOME/.local/bin"
 # Installing catkin package
 RUN mkdir -p ~/catkin_ws/src
 RUN sudo rosdep init && rosdep update && sudo apt update
+RUN echo "testest"
 RUN git clone https://github.com/ojh6404/eus_imitation.git -b devel-moonshot ~/catkin_ws/src/eus_imitation
 RUN cd ~/catkin_ws/src/ &&\
     source /opt/ros/noetic/setup.bash &&\
