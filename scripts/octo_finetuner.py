@@ -49,6 +49,7 @@ flags.DEFINE_string("data_dir", None, "Path to finetuning dataset, in RLDS forma
 flags.DEFINE_string("save_dir", "octo_models", "Directory for saving finetuning checkpoints.")
 flags.DEFINE_integer("window_size", 1, "Window size for finetuning dataset.")
 flags.DEFINE_integer("batch_size", 32, "Batch size for finetuning.")
+flags.DEFINE_integer("epoch", 10000, "Number of epochs for finetuning.")
 flags.DEFINE_bool("debug", False, "Debug config (no wandb logging)")
 
 default_config_file = os.path.join(
@@ -71,6 +72,7 @@ def main(_):
     FLAGS.config.window_size = FLAGS.window_size
     FLAGS.config.batch_size = FLAGS.batch_size
     FLAGS.config.save_dir = FLAGS.save_dir
+    FLAGS.config.num_steps = FLAGS.epoch
     if FLAGS.data_dir is not None:
         FLAGS.config.dataset_kwargs.data_dir = FLAGS.data_dir
 
