@@ -54,7 +54,9 @@ obs: # input into policy
       has_decoder: False
       freeze: False
   proprio:
-    topic_name: "/joint_states"
+    # topic_name: "/joint_states"
+    # msg_type: "JointState"
+    topic_name: "/panda_fls/target_coords"
     msg_type: "FloatVector"
     modality: "FloatVectorModality"
     normalize: True
@@ -65,8 +67,10 @@ obs: # input into policy
       activation: "ReLU" # [ReLU, Tanh...]
 actions:
   type: "action_trajectory"
-  topic_name: "/panda_fls/target_coords"
-  msg_type: "Float32MultiArrayStamped"
+  # topic_name: "/panda_fls/target_coords"
+  # msg_type: "Float32MultiArrayStamped"
+  topic_name: "/panda_fls/controller/target_input"
+  msg_type: "FloatVector"
   modality: "FloatVectorModality"
   dim: 8 # x0,y0,z0,x1,y1,z1,grasp0,grasp1
   normalize: True
