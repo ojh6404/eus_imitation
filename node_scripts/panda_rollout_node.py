@@ -14,8 +14,23 @@ from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
 from eus_imitation.msg import FloatVector
 
+from copy import deepcopy
+
 from octo.model.octo_model import OctoModel
 
+import cv2
+import tensorflow_datasets as tfds
+
+builder = tfds.builder_from_directory(builder_dir='/home/user/tensorflow_datasets/imitator_dataset/1.0.0')
+ds = builder.as_dataset(split='train[:1]') # only one episode
+
+# sample episode + resize to 256x256 (default third-person cam resolution)
+episode = next(iter(ds))
+steps = list(episode['steps'])
+images = [cv2.resize(np.array(step['observation']['head_image']), (224, 224)) for step in steps] # (L, H, W, C)
+proprios = [np.array(step['observation']['proprio']) for step in steps] # (L, D)
+
+goal_image = images[-1] # last image is the goal image
 
 def jax_has_gpu():
     try:
@@ -43,9 +58,9 @@ class OctoROSRollout(object):
 
         self.instruction = cfg.task.language_instruction
         self.instruction ="Pick up the string on the left side"
-        self.task = self.model.create_tasks(texts=[self.instruction])
+        self.task = self.model.create_tasks(texts=[self.instruction],
+                                            goals={"image_primary": goal_image[None]}) # TODO image goal
 
-        self.index = 0
         self.update_interval = 1
         self.window_size = 2
 
@@ -58,14 +73,13 @@ class OctoROSRollout(object):
         ]
 
         self.obs_dict_buf = {obs_key: None for obs_key in self.obs_keys}
-        self.obs_dict_input = {obs_key: [None for _ in range(self.window_size)] for obs_key in self.obs_keys}
+        self.obs_dict_input = {obs_key: [] for obs_key in self.obs_keys} # (WINDOW_SIZE, D)
 
         self.image_tuner = HSVBlurCropResolFilter.from_yaml(cfg.image_config)
         self.ros_init()
         rospy.loginfo("PolicyExecutorNode initialized")
         self.inference_start = time.time()
 
-        self.timer = rospy.Timer(rospy.Duration(1 / self.rate), self.timer_callback)
 
     def obs_callback(self, obs_key, msg):
         if self.cfg.obs[obs_key].msg_type == "Image":
@@ -87,8 +101,11 @@ class OctoROSRollout(object):
         self.bridge = CvBridge()
 
         # publishers
+        # self.pub_action = rospy.Publisher(
+        #     "/eus_imitation/robot_action", FloatVector, queue_size=1
+        # )  # TODO
         self.pub_action = rospy.Publisher(
-            "/eus_imitation/robot_action", FloatVector, queue_size=1
+            "/panda_fls/controller/target_input", FloatVector, queue_size=1
         )  # TODO
         self.pub_image_obs = [
             rospy.Publisher("/eus_imitation/" + image_obs, Image, queue_size=1)
@@ -126,11 +143,9 @@ class OctoROSRollout(object):
         self.debug_action = np.array(msg.data).astype(np.float32)
 
     def rollout(self, obs_dict: Dict[str, Any]) -> None:
-        for obs_key in self.obs_keys:
-            obs_dict[obs_key] = np.stack(obs_dict[obs_key])[None] # (1,WINDOW_SIZE,H,W,C)
 
-        input_images = obs_dict["head_image"]
-        input_proprios = obs_dict["proprio"]
+        input_images = np.stack(obs_dict["head_image"])[None] # (1,WINDOW_SIZE,H,W,C)
+        input_proprios = np.stack(obs_dict["proprio"])[None] # (1,WINDOW_SIZE,DIM)
         input_proprios = (input_proprios - self.proprio_stats['mean'][None][None]) / (self.proprio_stats['std'][None][None] + 1e-8)
         observation = {
             'image_primary': input_images,
@@ -140,7 +155,7 @@ class OctoROSRollout(object):
 
         # this returns *normalized* actions --> we need to unnormalize using the dataset statistics
         # norm_actions = model.sample_actions(observation, task, rng=jax.random.PRNGKey(0))
-        norm_actions = policy_fn(jax.tree_map(lambda x: x, observation), task, rng=jax.random.PRNGKey(0))
+        norm_actions = self.policy_fn(jax.tree_map(lambda x: x, observation), self.task, rng=jax.random.PRNGKey(0))
         norm_actions = norm_actions[0]   # remove batch
 
         action = (
@@ -150,39 +165,64 @@ class OctoROSRollout(object):
         action = np.clip(action, self.act_stats["min"], self.act_stats["max"])
         return action
 
-    def reset(self):
-        self.index = 0
-
     def timer_callback(self, event):
         for self.obs_key in self.obs_keys:
             if self.obs_dict_buf[self.obs_key] is None:
                 return
 
-        # if None is in the obs_dict_input, then we need to fill it
+        # if obs_dict_input[obs_key] is not full, len < window_size
         for obs_key in self.obs_keys:
-            if None in self.obs_dict_input[obs_key]:
-                self.obs_dict_input[obs_key].pop(0) #
+            if len(self.obs_dict_input[obs_key]) < self.window_size:
                 self.obs_dict_input[obs_key].append(self.obs_dict_buf[obs_key])
             else: # obs_dict_input[obs_key] is full, len = window_size
-                print("callback time: ", time.time() - self.callback_start)
-                self.callback_start = time.time()
-                self.inference_start = time.time()
-                pred_action = self.rollout(self.obs_dict_input)
-                print(
-                    "running count: ",
-                    self.index,
-                    "inference time: ",
-                    time.time() - self.inference_start,
-                )
-                pred_action = pred_action.tolist()
-                if self.debug:
-                    print("pred action: ", pred_action)
-                    print("real action: ", self.debug_action)
-                else:
-                    action_msg = FloatVector()
-                    action_msg.header.stamp = rospy.Time.now()
-                    action_msg.data = pred_action
-                    self.pub_action.publish(action_msg)
+                self.obs_dict_input[obs_key].append(self.obs_dict_buf[obs_key])
+                self.obs_dict_input[obs_key].pop(0) #
+
+                assert len(self.obs_dict_input[obs_key]) == self.window_size
+
+        # for all obs_keys, check len(obs_dict_input[obs_key]) == window_size
+        # then rollout
+        if all([len(self.obs_dict_input[obs_key]) == self.window_size for obs_key in self.obs_keys]):
+            self.inference_start = time.time()
+            pred_action = self.rollout(self.obs_dict_input) # (CHUNK, D)
+            print(
+                "callback time: ",
+                time.time() - self.callback_start,
+                "inference time: ",
+                time.time() - self.inference_start,
+            )
+            pred_action = pred_action[0]
+            pred_action = pred_action.tolist()
+            self.callback_start = time.time()
+            if self.debug:
+                print("pred action: ", pred_action)
+                print("real action: ", self.debug_action)
+            else:
+                action_msg = FloatVector()
+                action_msg.header.stamp = rospy.Time.now()
+                action_msg.data = pred_action
+                self.pub_action.publish(action_msg)
+
+
+        # print("callback time: ", time.time() - self.callback_start)
+        # self.callback_start = time.time()
+        # self.inference_start = time.time()
+        # pred_action = self.rollout(self.obs_dict_input)
+        # print(
+        #     "running count: ",
+        #     self.index,
+        #     "inference time: ",
+        #     time.time() - self.inference_start,
+        # )
+        # pred_action = pred_action.tolist()
+        # if self.debug:
+        #     print("pred action: ", pred_action)
+        #     print("real action: ", self.debug_action)
+        # else:
+        #     action_msg = FloatVector()
+        #     action_msg.header.stamp = rospy.Time.now()
+        #     action_msg.data = pred_action
+        #     self.pub_action.publish(action_msg)
 
 
 if __name__ == "__main__":
