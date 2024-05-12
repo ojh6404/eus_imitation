@@ -17,6 +17,7 @@ import wandb
 from octo.data.dataset import make_single_dataset
 from octo.model.octo_model import OctoModel
 from octo.utils.jax_utils import initialize_compilation_cache
+from octo.model.components.action_heads import L1ActionHead
 from octo.utils.spec import ModuleSpec
 from octo.utils.train_callbacks import (
     RolloutVisualizationCallback,
@@ -213,6 +214,16 @@ def main(_):
 
     rng = jax.random.PRNGKey(FLAGS.config.seed)
     rng, init_rng = jax.random.split(rng)
+
+    # Modify config to match finetuning task
+    del config["model"]["observation_tokenizers"]["wrist"]  # delete cause we don't have wrist data
+    config["model"]["heads"]["action"] = ModuleSpec.create(
+        L1ActionHead,
+        pred_horizon=10,
+        action_dim=8,
+        readout_key="readout_action",
+    )
+
     model = OctoModel.from_config(
         config,
         example_batch,

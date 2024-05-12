@@ -22,8 +22,8 @@ ds = builder.as_dataset(split='train[:1]')
 # sample episode + resize to 256x256 (default third-person cam resolution)
 episode = next(iter(ds))
 steps = list(episode['steps'])
-images = [cv2.resize(np.array(step['observation']['head_image']), (224, 224)) for step in steps]
-proprios = [np.array(step['observation']['proprio']) for step in steps]
+images = [cv2.resize(np.array(step['observation']['head_image']), (224, 224)) for step in steps] # (L, H, W, C)
+proprios = [np.array(step['observation']['proprio']) for step in steps] # (L, D)
 
 # extract goal image & language instruction
 goal_image = images[-1]

@@ -23,7 +23,7 @@ def get_config(config_string="full,multimodal"):
         # All actions are relative deltas, except for the last one (gripper) which is absolute
         # Specifying this is only necessary if you want to predict > 1 step into the future
         # "absolute_action_mask": [False, False, False, False, False, False, True],
-        "absolute_action_mask": [True, True, True, True, True, True, True],
+        "absolute_action_mask": [True, True, True, True, True, True, True, True],
         # standardize_fn is dynamically loaded from a file
         # for example: "experiments/kevin/custom_standardization_transforms.py:aloha_dataset_transform"
         "standardize_fn": "scripts/configs/dataset_transforms.py:imitator_dataset_transform",
@@ -49,7 +49,7 @@ def get_config(config_string="full,multimodal"):
 
     max_steps = FieldReference(50000)
     # window_size = FieldReference(default=1)
-    window_size = FieldReference(default=3)
+    window_size = FieldReference(default=2)
 
     config = dict(
         pretrained_path=placeholder(str),

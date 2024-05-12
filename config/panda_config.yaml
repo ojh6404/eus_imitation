@@ -54,8 +54,8 @@ obs: # input into policy
       has_decoder: False
       freeze: False
   proprio:
-    topic_name: "/joint_states"
-    msg_type: "FloatVector"
+    topic_name: "/dual_panda/joint_states"
+    msg_type: "JointState"
     modality: "FloatVectorModality"
     normalize: True
     obs_encoder:

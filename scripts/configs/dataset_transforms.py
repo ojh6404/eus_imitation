@@ -28,7 +28,7 @@ def imitator_dataset_transform(
 ) -> Dict[str, Any]:
     trajectory["observation"]["eef_state"] = trajectory["observation"]["proprio"][:, :6] # x, y, z, roll, pitch, yaw
     trajectory["observation"]["gripper_state"] = trajectory["observation"]["proprio"][
-        :, -1:
+        :, 6:
     ]
     # trajectory["action"] = trajectory["action"][...] # action is the action
     return trajectory
