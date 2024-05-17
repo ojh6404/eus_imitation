@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict
 from functools import partial
 from omegaconf import OmegaConf
+from collections import deque
 
 import numpy as np
 import jax
@@ -44,7 +45,6 @@ assert (
     jax_has_gpu()
 ), "JAX does not have GPU support. Please install JAX with GPU support."
 
-
 class OctoROSRollout(object):
     def __init__(self, cfg: Dict[str, Any]) -> None:
         super(OctoROSRollout, self).__init__()
@@ -63,6 +63,9 @@ class OctoROSRollout(object):
 
         self.update_interval = 1
         self.window_size = 2
+        self.pred_horizon = 10
+        self.exp_weight = 0.0
+        self.act_history = deque(maxlen=self.pred_horizon)
 
         self.cfg = cfg
         self.obs_keys = list(cfg.obs.keys())
@@ -184,46 +187,43 @@ class OctoROSRollout(object):
         # then rollout
         if all([len(self.obs_dict_input[obs_key]) == self.window_size for obs_key in self.obs_keys]):
             self.inference_start = time.time()
-            pred_action = self.rollout(self.obs_dict_input) # (CHUNK, D)
+            actions = self.rollout(self.obs_dict_input) # (CHUNK, D)
             print(
                 "callback time: ",
                 time.time() - self.callback_start,
                 "inference time: ",
                 time.time() - self.inference_start,
             )
-            pred_action = pred_action[0]
-            pred_action = pred_action.tolist()
+
+            assert len(actions) >= self.pred_horizon
+
+            self.act_history.append(actions[: self.pred_horizon])
+            num_actions = len(self.act_history)
+
+            # select the predicted action for the current step from the history of action chunk predictions
+            curr_act_preds = np.stack(
+                [
+                    pred_actions[i]
+                    for (i, pred_actions) in zip(
+                        range(num_actions - 1, -1, -1), self.act_history
+                    )
+                ]
+            )
+
+            # more recent predictions get exponentially *less* weight than older predictions
+            weights = np.exp(-self.exp_weight * np.arange(num_actions))
+            weights = weights / weights.sum()
+            # compute the weighted average across all predictions for this timestep
+            action = np.sum(weights[:, None] * curr_act_preds, axis=0).tolist()
             self.callback_start = time.time()
             if self.debug:
-                print("pred action: ", pred_action)
+                print("pred action: ", action)
                 print("real action: ", self.debug_action)
             else:
                 action_msg = FloatVector()
                 action_msg.header.stamp = rospy.Time.now()
-                action_msg.data = pred_action
+                action_msg.data = action
                 self.pub_action.publish(action_msg)
-
-
-        # print("callback time: ", time.time() - self.callback_start)
-        # self.callback_start = time.time()
-        # self.inference_start = time.time()
-        # pred_action = self.rollout(self.obs_dict_input)
-        # print(
-        #     "running count: ",
-        #     self.index,
-        #     "inference time: ",
-        #     time.time() - self.inference_start,
-        # )
-        # pred_action = pred_action.tolist()
-        # if self.debug:
-        #     print("pred action: ", pred_action)
-        #     print("real action: ", self.debug_action)
-        # else:
-        #     action_msg = FloatVector()
-        #     action_msg.header.stamp = rospy.Time.now()
-        #     action_msg.data = pred_action
-        #     self.pub_action.publish(action_msg)
-
 
 if __name__ == "__main__":
     import argparse
