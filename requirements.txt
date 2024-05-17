@@ -1,0 +1,10 @@
+numpy == 1.24.3
+opencv-python
+pyyaml
+h5py
+psutil
+scipy < 1.13.0
+matplotlib
+typing-extensions
+tunable-filter
+omegaconf

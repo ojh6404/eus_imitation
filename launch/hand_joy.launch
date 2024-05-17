@@ -1,0 +1,39 @@
+<launch>
+  <arg name="ns" default="eus_imitation"/>
+
+  <!-- hand joy node args -->
+  <arg name="hand_detections" default="/hand_object_detection_node/hand_detections"/>
+  <arg name="speech_to_text" default="/speech_to_text"/>
+  <arg name="debug" default="true"/>
+  <arg name="hand_dist_threshold" default="0.05"/>
+
+  <!-- hand frame calib node args -->
+  <arg name="rate" default="10"/>
+  <arg name="base_frame" default="base_footprint"/>
+  <arg name="hand_frame" default="right_hand"/>
+  <arg name="target_frame" default="target_$(arg hand_frame)"/>
+
+  <group ns="$(arg ns)">
+    <!-- hand joy node -->
+    <node name="hand_joy_node" pkg="eus_imitation" type="hand_joy_node.py" output="screen" >
+      <remap from="~hand_detections" to="$(arg hand_detections)" />
+      <remap from="~speech_to_text" to="$(arg speech_to_text)" />
+      <rosparam subst_value="true" >
+          debug: $(arg debug)
+          hand_dist_threshold: $(arg hand_dist_threshold)
+      </rosparam>
+    </node>
+
+    <!-- hand frame calib node -->
+    <rosparam command="load" file="$(find eus_imitation)/config/hand_calibration.yaml"/>
+    <node name="hand_frame_calib_node" pkg="eus_imitation" type="hand_frame_calibration_node.py">
+      <rosparam subst_value="true" >
+          base_frame: $(arg base_frame)
+          hand_frame: $(arg hand_frame)
+          target_frame: $(arg target_frame)
+          rate: $(arg rate)
+          offset: right_hand_offset
+      </rosparam>
+    </node>
+  </group>
+</launch>

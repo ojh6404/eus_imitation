@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+
+import os
+from absl import app, flags, logging
+import flax
+import jax
+import optax
+import tensorflow as tf
+import tqdm
+import wandb
+from omegaconf import OmegaConf
+
+from octo.data.dataset import make_single_dataset
+from octo.data.utils.data_utils import NormalizationType
+from octo.model.components.action_heads import L1ActionHead
+from octo.model.components.tokenizers import LowdimObsTokenizer
+from octo.model.octo_model import OctoModel
+from octo.utils.jax_utils import initialize_compilation_cache
+from octo.utils.spec import ModuleSpec
+from octo.utils.train_utils import (
+    freeze_weights,
+    merge_params,
+    process_text,
+    TrainState,
+)
+
+FLAGS = flags.FLAGS
+flags.DEFINE_string("project_name", None, "Name of the project to load config from.")
+flags.DEFINE_string("pretrained_path", None, "Path to pre-trained Octo checkpoint directory.")
+flags.DEFINE_string("data_dir", None, "Path to finetuning dataset, in RLDS format.")
+flags.DEFINE_string("save_dir", None, "Directory for saving finetuning checkpoints.")
+flags.DEFINE_integer("batch_size", 128, "Batch size for finetuning.")
+flags.DEFINE_bool(
+    "freeze_transformer",
+    False,
+    "Whether pre-trained transformer weights should be frozen.",
+)
+flags.DEFINE_string("primary_image_obs", "head_image", "Primary image observation key.")
+flags.DEFINE_integer("window_size", 1, "Window size for finetuning dataset.")
+flags.DEFINE_integer("pred_horizon", 10, "Prediction horizon for finetuning action head.")
+flags.DEFINE_integer("epoch", 10000, "Number of epochs for finetuning.")
+
+
+def main(_):
+
+    imitator_config = OmegaConf.load("config/octo_config.yaml")
+    if FLAGS.save_dir is None:
+        FLAGS.save_dir = os.path.join(os.path.expanduser("~"), ".imitator", FLAGS.project_name, "octo_models")
+        os.makedirs(FLAGS.save_dir, exist_ok=True)
+    if FLAGS.data_dir is None:
+        # default is ~/tensorflow_datasets/imitator_dataset
+        FLAGS.data_dir = os.path.join(os.path.expanduser("~"), "tensorflow_datasets")
+
+    assert FLAGS.batch_size % jax.device_count() == 0, "Batch size must be divisible by device count."
+
+    initialize_compilation_cache()
+    # prevent tensorflow from using GPU memory since it's only used for data loading
+    tf.config.set_visible_devices([], "GPU")
+
+    # setup wandb for logging
+    wandb.init(name=FLAGS.project_name, project=FLAGS.project_name)
+
+    # load pre-trained model
+    logging.info("Loading pre-trained model...")
+    pretrained_model = OctoModel.load_pretrained(FLAGS.pretrained_path)
+
+    # make finetuning dataset
+    # apply Gaussian normalization, load chunks of 50 actions since we'll train with action chunking
+    # delete goal images in the data loader since we will train a language-conditioned-only policy
+    # TODO: directly load this from raw data to make it less opaque?
+    logging.info("Loading finetuning dataset...")
+    dataset = make_single_dataset(
+        dataset_kwargs=dict(
+            # name=FLAGS.project_name,
+            name="imitator_dataset",
+            data_dir=FLAGS.data_dir,
+            image_obs_keys={"primary": FLAGS.primary_image_obs},
+            state_obs_keys=["proprio"],  # TODO
+            language_key="language_instruction",
+            action_proprio_normalization_type=NormalizationType.NORMAL,
+            absolute_action_mask=[True] * imitator_config.actions.dim,
+        ),
+        traj_transform_kwargs=dict(
+            window_size=FLAGS.window_size,
+            future_action_window_size=10,
+        ),
+        frame_transform_kwargs=dict(
+            resize_size={"primary": imitator_config.obs[FLAGS.primary_image_obs].obs_encoder.input_dim[:2]},
+        ),
+        train=True,
+    )
+    train_data_iter = (
+        dataset.repeat()
+        .unbatch()
+        .shuffle(10000)  # can reduce this if RAM consumption too high
+        .batch(FLAGS.batch_size)
+        .iterator()
+    )
+
+    # run text tokenizer over batch (this needs to happen before training / sharding) + delete unused keys
+    text_processor = pretrained_model.text_processor
+
+    def process_batch(batch):
+        batch = process_text(batch, text_processor)
+        del batch["dataset_name"]
+        return batch
+
+    train_data_iter = map(process_batch, train_data_iter)
+    example_batch = next(train_data_iter)
+
+    config = pretrained_model.config
+    del config["model"]["observation_tokenizers"]["wrist"]  # delete cause we don't have wrist data
+
+    ### TODO make it configurable to add new observation tokenizers
+    config["model"]["observation_tokenizers"]["proprio"] = ModuleSpec.create(
+        LowdimObsTokenizer,
+        n_bins=256,
+        bin_type="normal",
+        low=-2.0,
+        high=2.0,
+        obs_keys=["proprio"],
+    )
+    # Fully override the old action head with a new one (for smaller changes, you can use update_module_config)
+    config["model"]["heads"]["action"] = ModuleSpec.create(
+        L1ActionHead,
+        pred_horizon=FLAGS.pred_horizon,
+        action_dim=imitator_config.actions.dim,
+        readout_key="readout_action",
+    )
+
+    # initialize weights for modified Octo model, then merge in all applicable pre-trained weights
+    # new position encodings for proprio inputs & weights for new action head will remain "from scratch"
+    logging.info("Updating model for new observation & action space...")
+    model = OctoModel.from_config(
+        config,
+        example_batch,
+        text_processor,
+        verbose=True,
+        dataset_statistics=dataset.dataset_statistics,
+    )
+    merged_params = merge_params(model.params, pretrained_model.params)
+    # can perform any additional parameter surgery here...
+    # ...
+    model = model.replace(params=merged_params)
+    del pretrained_model
+
+    # create optimizer & train_state, optionally freeze keys for pre-trained transformer
+    # train_state bundles parameters & optimizers
+    learning_rate = optax.join_schedules([optax.linear_schedule(0, 3e-5, 100), optax.constant_schedule(3e-5)], [100])
+    tx = optax.adamw(learning_rate)
+    frozen_keys = model.config["optimizer"]["frozen_keys"]
+    if FLAGS.freeze_transformer:
+        frozen_keys.append("BlockTransformer_0")
+    tx = freeze_weights(tx, model.params, frozen_keys)
+    train_state = TrainState.create(
+        rng=jax.random.PRNGKey(1234),
+        model=model,
+        tx=tx,
+    )
+
+    # define loss function and train step
+    def loss_fn(params, batch, rng, train=True):
+        bound_module = model.module.bind({"params": params}, rngs={"dropout": rng})
+        transformer_embeddings = bound_module.octo_transformer(
+            batch["observation"],
+            batch["task"],
+            batch["observation"]["pad_mask"],
+            train=train,
+        )
+        action_loss, action_metrics = bound_module.heads["action"].loss(
+            transformer_embeddings,  # Action head knows to pull out the action readout_key
+            batch["action"],
+            pad_mask=batch["observation"]["pad_mask"],
+            train=train,
+        )
+        return action_loss, action_metrics
+
+    @jax.jit
+    def train_step(state, batch):
+        rng, dropout_rng = jax.random.split(state.rng)
+        (loss, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+            state.model.params, batch, dropout_rng, train=True
+        )
+        new_state = state.apply_gradients(grads=grads, rng=rng)
+        return new_state, info
+
+    # run finetuning loop
+    logging.info("Starting finetuning...")
+
+    for i in tqdm.tqdm(range(FLAGS.epoch), total=FLAGS.epoch, dynamic_ncols=True):
+        batch = next(train_data_iter)
+        train_state, update_info = train_step(train_state, batch)
+        if (i + 1) % 100 == 0:
+            update_info = jax.device_get(update_info)
+            wandb.log(
+                flax.traverse_util.flatten_dict({"training": update_info}, sep="/"),
+                step=i,
+            )
+        if (i + 1) % 1000 == 0:
+            # save checkpoint
+            train_state.model.save_pretrained(step=i, checkpoint_path=FLAGS.save_dir)
+
+
+if __name__ == "__main__":
+    app.run(main)
