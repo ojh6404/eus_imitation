@@ -8,7 +8,6 @@ RUN echo 'Etc/UTC' > /etc/timezone && \
     apt-get install -q -y --no-install-recommends tzdata && \
     rm -rf /var/lib/apt/lists/*
 
-
 # install essential packages
 RUN apt update && apt install -q -y --no-install-recommends \
     dirmngr \
@@ -20,6 +19,21 @@ RUN apt update && apt install -q -y --no-install-recommends \
     git \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies and Python 3.11
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y python3.11 python3.11-distutils python3.11-venv python3-pip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pip for Python 3.11
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
+RUN python3.11 -m pip install -U pycryptodomex
+RUN python3.11 -m pip install -U rospkg
+
 
 RUN \
   useradd user && \
@@ -42,7 +56,6 @@ RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sud
 ENV LANG C.UTF-8
 ENV LC_ALL C.UTF-8
 ENV ROS_DISTRO noetic
-
 
 
 # install ros core
@@ -90,8 +103,8 @@ ENV PATH="$PATH:$HOME/.local/bin"
 # Installing catkin package
 RUN mkdir -p ~/catkin_ws/src
 RUN sudo rosdep init && rosdep update && sudo apt update
-RUN echo "testest"
-RUN git clone https://github.com/ojh6404/eus_imitation.git -b devel-moonshot ~/catkin_ws/src/eus_imitation
+RUN git clone https://github.com/ojh6404/ros_comm.git -b pr-2297 ~/catkin_ws/src/ros_comm
+RUN git clone https://github.com/ojh6404/eus_imitation.git -b patch-python3.11 ~/catkin_ws/src/eus_imitation
 RUN cd ~/catkin_ws/src/ &&\
     source /opt/ros/noetic/setup.bash &&\
     rosdep install --from-paths . -i -r -y &&\
@@ -99,7 +112,7 @@ RUN cd ~/catkin_ws/src/ &&\
     cd ~/catkin_ws && catkin init && catkin build &&\
     rm -rf ~/.cache/pip
 
-# to avoid conflcit when mounting
+# # to avoid conflcit when mounting
 RUN rm -rf ~/catkin_ws/src/eus_imitation/launch
 RUN rm -rf ~/catkin_ws/src/eus_imitation/node_scripts
 RUN rm -rf ~/catkin_ws/src/eus_imitation/scripts
