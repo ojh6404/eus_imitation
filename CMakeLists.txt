@@ -28,7 +28,7 @@ catkin_package(
 
 catkin_generate_virtualenv(
   INPUT_REQUIREMENTS requirements.txt
-  PYTHON_INTERPRETER python3.9
+  PYTHON_INTERPRETER python3.11
   USE_SYSTEM_PACKAGES TRUE
   ISOLATE_REQUIREMENTS FALSE
   CHECK_VENV FALSE
