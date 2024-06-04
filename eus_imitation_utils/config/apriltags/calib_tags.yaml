@@ -1,0 +1,44 @@
+standalone_tags:
+  [
+    # rogik_right_gripper_frame
+    {id: 0, size: 0.07, name: Tag36h11_0},
+    {id: 1, size: 0.07, name: Tag36h11_1},
+    {id: 2, size: 0.07, name: Tag36h11_2},
+    {id: 3, size: 0.07, name: Tag36h11_3},
+    # rogik_left_gripper_frame
+    # {id: 4, size: 0.07, name: Tag36h11_4},
+    # {id: 5, size: 0.07, name: Tag36h11_5},
+    # {id: 6, size: 0.07, name: Tag36h11_6},
+    # {id: 7, size: 0.07, name: Tag36h11_7},
+    # # calib_cube_frame
+    {id: 20, size: 0.04, name: Tag36h11_20},
+    {id: 21, size: 0.04, name: Tag36h11_21},
+    {id: 22, size: 0.04, name: Tag36h11_22},
+    {id: 23, size: 0.04, name: Tag36h11_23},
+    {id: 24, size: 0.04, name: Tag36h11_24},
+    {id: 25, size: 0.04, name: Tag36h11_25},
+  ]
+tag_bundles:
+  [
+    # {
+    #   name: 'rogik_right_gripper_frame',
+    #   layout:
+    #     [
+    #       {id: 0, size: 0.045, x: 0.0000, y: 0.0000, z: 0.0000, qw: 1.0000, qx: 0.0000, qy: 0.0000, qz: 0.0000},
+    #       {id: 1, size: 0.045, x: -0.0030, y: 0.0360, z: -0.0168, qw: 0.0000, qx: 0.0000, qy: -0.7071, qz: -0.7071},
+    #       {id: 2, size: 0.045, x: 0.0309, y: 0.0058, z: -0.0220, qw: 0.5000, qx: 0.5000, qy: 0.5000, qz: 0.5000},
+    #       {id: 3, size: 0.03, x: -0.0529, y: -0.0036, z: -0.0753, qw: 0.5000, qx: 0.5000, qy: -0.5000, qz: -0.5000}
+    #     ]
+    # },
+    # {
+    #   name: 'calib_cube_frame',
+    #   layout:
+    #     [
+    #       {id: 20, size: 0.04, x: 0.0000, y: 0.0000, z: 0.0000, qw: 1.0000, qx: 0.0000, qy: 0.0000, qz: 0.0000},
+    #       {id: 21, size: 0.04, x: 0.0290, y: 0.0014, z: -0.0246, qw: 0.7144, qx: 0.0147, qy: 0.6996, qz: 0.0057},
+    #       {id: 23, size: 0.04, x: -0.0226, y: -0.0014, z: -0.0283, qw: 0.7151, qx: 0.0156, qy: -0.6989, qz: -0.0025},
+    #       {id: 24, size: 0.04, x: 0.0032, y: 0.0272, z: -0.0245, qw: 0.7090, qx: -0.7052, qy: 0.0007, qz: -0.0014},
+    #       {id: 25, size: 0.04, x: 0.0022, y: -0.0306, z: -0.0229, qw: 0.7304, qx: 0.6829, qy: -0.0044, qz: 0.0101},
+    #     ]
+    # }
+  ]

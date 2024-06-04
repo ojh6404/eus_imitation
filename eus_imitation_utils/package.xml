@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>eus_imitation_utils</name>
+  <version>0.0.3</version>
+  <description>package for eus_imitation utils</description>
+
+  <maintainer email="oh@jsk.imi.i.u-tokyo.ac.jp">Jihoon Oh</maintainer>
+  <author email="oh@jsk.imi.i.u-tokyo.ac.jp">Jihoon Oh</author>
+
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>std_msgs</build_depend>
+  <!-- <build_depend>catkin_virtualenv</build_depend> -->
+
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
+  <exec_depend>jsk_topic_tools</exec_depend>
+  <exec_depend>tf</exec_depend>
+  <exec_depend>eus_imitation_msgs</exec_depend>
+  <exec_depend>speech_recognition_msgs</exec_depend>
+
+  <!-- <export> -->
+  <!--   <pip_requirements>requirements.txt</pip_requirements> -->
+  <!-- </export> -->
+
+</package>

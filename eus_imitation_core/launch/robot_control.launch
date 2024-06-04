@@ -1,0 +1,20 @@
+<launch>
+  <arg name="ns" default="eus_imitation" />
+  <arg name="project" default="false"/>
+  <arg name="robot" default="pr2" />
+  <arg name="device" default="vive" />
+  <arg name="imitation_mode" default="nil"/>
+  <arg name="rate" default="10"/>
+
+  <group ns="$(arg ns)">
+    <rosparam command="load" file="$(find eus_imitation_core)/config/$(arg robot)/init_pose.yaml"/>
+    <rosparam if="$(eval device=='vive')" command="load" file="$(find eus_imitation_core)/config/vive/default_vive_ids.yaml"/>
+  </group>
+  <node pkg="eus_imitation_core" type="main.l" name="robot_control"
+        args="&quot;(main :robot :$(arg robot) :imitation $(arg imitation_mode) :device :$(arg device))&quot;" output="screen" />
+  <node if="$(eval bool(project))" pkg="eus_imitation_utils" type="rosbag_recorder.py" name="rosbag_recorder" args="$(arg project)" output="screen" />
+  <include if="$(eval device=='spacenav')" file="$(find eus_imitation_utils)/launch/device/spacenav.launch" />
+  <group if="$(eval device=='rogik')">
+    <include file="$(find rogik_ros)/launch/rogik_gripper.launch" />
+  </group>
+</launch>

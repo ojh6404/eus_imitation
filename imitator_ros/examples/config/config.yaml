@@ -1,0 +1,48 @@
+obs:
+  head_image:                 # NOTE must include "image" in obs name if it is image modality
+    modality: "ImageModality" # NOTE "ImageModality" of "FloatVectorModality" is available
+    dim: [112, 112, 3]        # NOTE dim to resize image
+    camera: "primary"         # NOTE "primary" of "wrist"
+    topic_name: "/kinect_head/rgb/image_rect_color/compressed"
+    msg_type: "CompressedImage"
+  robot_state:
+    modality: "FloatVectorModality"
+    dim: 7 # x,y,z,roll,pitch,yaw,grasp
+    topic_name: "/eus_imitation/robot_state"
+    msg_type: "FloatVector"
+  joint_state:
+    modality: "FloatVectorModality"
+    dim: 7 # len(joints)
+    topic_name: "/joint_states"
+    msg_type: "JointState"
+    joints: # NOTE which joints to include in obs
+      - "r_shoulder_pan_joint"
+      - "r_shoulder_lift_joint"
+      - "r_upper_arm_roll_joint"
+      - "r_elbow_flex_joint"
+      - "r_forearm_roll_joint"
+      - "r_wrist_flex_joint"
+      - "r_wrist_roll_joint"
+actions:
+  type: "action_trajectory"
+  dim: 7 # x,y,z,roll,pitch,yaw,grasp for example
+  topic_name: "/eus_imitation/robot_action"
+  msg_type: "FloatVector"
+  modality: "FloatVectorModality"
+task:
+  language_instruction: "Pick up the object"
+
+# ROS configuration
+ros:
+  rate: 10            # NOTE control rate
+  message_filters:    # NOTE mf filter config for rosbag dataset
+    slop: 0.1
+    queue_size: 1000
+  additional_topics:  # NOTE additional topics to record
+    - "/tf"
+    - "/joint_states"
+    - "/kinect_head/depth_registered/image_rect/compressedDepth"
+    - "/kinect_head/rgb/camera_info"
+    - "/spacenav/joy"
+    - "/controller_LHR_FD35BD42/joy"
+    - "/controller_LHR_F7AFBF47/joy"

@@ -1,0 +1,42 @@
+- git:
+    local-name: jsk-ros-pkg/jsk_robot
+    uri: https://github.com/jsk-ros-pkg/jsk_robot.git
+- git:
+    local-name: jsk-ros-pkg/jsk_pr2eus
+    uri: https://github.com/jsk-ros-pkg/jsk_pr2eus.git
+- git:
+    local-name: jsk-ros-pkg/jsk_common
+    uri: https://github.com/jsk-ros-pkg/jsk_common.git
+    version: master
+- git:
+    local-name: jsk-ros-pkg/jsk_visualization
+    uri: https://github.com/jsk-ros-pkg/jsk_visualization.git
+    version: master
+- git:
+    local-name: ros-planning/moveit_pr2
+    uri: https://github.com/ros-planning/moveit_pr2.git
+    version: melodic-devel
+- git:
+    local-name: misc/collda_urdf
+    uri: https://github.com/ojh6404/collada_urdf.git
+    version: kinetic-devel
+- git:
+    local-name: ros-drivers/audio_common
+    uri: https://github.com/ros-drivers/audio_common.git
+    version: master
+- git:
+    local-name: ros-perception/image_transport_plugins
+    uri: https://github.com/ros-perception/image_transport_plugins.git
+    version: noetic-devel
+- git:
+    local-name: eus_imitation
+    uri: https://github.com/ojh6404/eus_imitation.git
+    version: master
+- git:
+    local-name: perception/tracking_ros
+    uri: https://github.com/ojh6404/tracking_ros.git
+    version: master
+- git:
+    local-name: perception/detic_ros
+    uri: https://github.com/HiroIshida/detic_ros.git
+    version: master

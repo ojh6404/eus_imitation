@@ -1,0 +1,11 @@
+numpy>=1.24.3
+opencv-python
+pyyaml
+h5py
+psutil
+scipy
+matplotlib
+typing-extensions
+tunable-filter
+omegaconf
+gymnasium

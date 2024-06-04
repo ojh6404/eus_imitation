@@ -1,0 +1,13 @@
+numpy
+opencv-python
+scipy
+pyquaternion
+opencv-python
+h5py
+psutil
+tqdm
+matplotlib
+omegaconf
+moviepy
+pandas
+imitator@git+https://github.com/ojh6404/imitator.git
