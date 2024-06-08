@@ -15,7 +15,7 @@
   </node>
 
   <!-- hand calibration node -->
-  <node pkg="eus_imitation" name="hand_calibration_node" type="hand_calibration_node.py" output="screen">
+  <node pkg="eus_imitation_utils" name="hand_calibration_node" type="hand_calibration_node.py" output="screen">
     <remap from="~speech_to_text" to="$(arg speech_to_text)"/>
   </node>
 
@@ -25,10 +25,10 @@
     <remap from="camera_info" to="$(arg camera_info)" />
     <param name="publish_tag_detections_image" type="bool" value="true" /><!-- default: false -->
     <param name="queue_size" type="int" value="$(arg queue_size)" />
-    <rosparam command="load" file="$(find eus_imitation)/config/apriltags/settings.yaml"/>
-    <rosparam command="load" file="$(find eus_imitation)/config/apriltags/tracker_tags.yaml" />
+    <rosparam command="load" file="$(find eus_imitation_utils)/config/apriltags/settings.yaml"/>
+    <rosparam command="load" file="$(find eus_imitation_utils)/config/apriltags/tracker_tags.yaml" />
   </node>
 
   <!-- visualization node -->
-  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find eus_imitation)/rviz/hand_calibration.rviz" output="screen" />
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find eus_imitation_utils)/rviz/hand_calibration.rviz" output="screen" />
 </launch>

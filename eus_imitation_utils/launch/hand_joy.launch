@@ -15,7 +15,7 @@
 
   <group ns="$(arg ns)">
     <!-- hand joy node -->
-    <node name="hand_joy_node" pkg="eus_imitation" type="hand_joy_node.py" output="screen" >
+    <node name="hand_joy_node" pkg="eus_imitation_utils" type="hand_joy_node.py" output="screen" >
       <remap from="~hand_detections" to="$(arg hand_detections)" />
       <remap from="~speech_to_text" to="$(arg speech_to_text)" />
       <rosparam subst_value="true" >
@@ -25,8 +25,8 @@
     </node>
 
     <!-- hand frame calib node -->
-    <rosparam command="load" file="$(find eus_imitation)/config/hand_calibration.yaml"/>
-    <node name="hand_frame_calib_node" pkg="eus_imitation" type="hand_frame_calibration_node.py">
+    <rosparam command="load" file="$(find eus_imitation_utils)/config/hand_calibration.yaml"/>
+    <node name="hand_frame_calib_node" pkg="eus_imitation_utils" type="hand_frame_calibration_node.py">
       <rosparam subst_value="true" >
           base_frame: $(arg base_frame)
           hand_frame: $(arg hand_frame)
