@@ -17,6 +17,7 @@
   :slots (;; robot control
           device
           rate
+          dry-run
           tfl
           control-arm
           larm-enable
@@ -149,9 +150,10 @@
           rarm-hand-offset))
 
 (defmethod robot-teaching-interface
-  (:init  (&key (rate 10) (device :vive) &allow-other-keys)
-    (send self :set-val 'device device)
+  (:init  (&key (rate 10) (device :vive) (dry-run nil) &allow-other-keys)
     (send self :set-val 'rate rate)
+    (send self :set-val 'device device)
+    (send self :set-val 'dry-run dry-run)
     (send self :set-val 'mirror nil)
     (send self :controller-method device :init)
     self)

@@ -77,6 +77,10 @@
    (send self :set-val 'control-arm nil)
    (send self :set-val 'loop-enable nil)
 
+   ;; if imitation-mode is nil and device is rogik or hand, set dry-run t
+   (if (and (not imitation-mode) (or (eq device :rogik) (eq device :hand)))
+       (send self :set-val 'dry-run t))
+
    ;; IK and control
    (send self :set-val 'ik-stop-step 10)
    (send self :set-val 'av-tm 800)
@@ -191,7 +195,8 @@
             (send self :set-arm-val :rarm :joint-state
                     (send robot :rarm :angle-vector))))
   (:update-robot ()
-    (send self :update-robot-model)
+    (unless dry-run
+      (send self :update-robot-model))
     (send self :update-current-end-coords)
     (send self :update-current-gripper-pos)
     (send self :update-current-joint-state)
@@ -229,10 +234,16 @@
                                              (send self :get-arm-val :rarm :target-coords))
              :rotation-axis (list t t)
              :move-target (list (send robot :larm :end-coords) (send robot :rarm :end-coords))
+             :link-list (list (send robot :link-list (send (send robot :larm :end-coords) :parent)
+                                                      (car (send robot :larm :links)))
+                              (send robot :link-list (send (send robot :rarm :end-coords) :parent)
+                                                      (car (send robot :rarm :links))))
              :avoid-collision-distance 5 :revert-if-fail nil :stop ik-stop-step
              :debug-view nil args)
       (send* robot :inverse-kinematics (send self :get-arm-val arm :target-coords)
              :rotation-axis t :move-target (send robot arm :end-coords)
+             :link-list (send robot :link-list (send (send robot arm :end-coords) :parent)
+                                               (car (send robot arm :links)))
              :avoid-collision-distance 5 :revert-if-fail nil :stop ik-stop-step
              :debug-view nil args)))
   (:angle-vector (&rest args)
@@ -328,7 +339,8 @@
           (send self :set-arm-val control-arm :target-joint-state (send robot control-arm :angle-vector))
           (send self :update-robot-action control-arm)
           (send self :publish-robot-action)
-          (unless (or (eq device :rogik) (eq device :hand))
+          ;; (unless (or (eq device :rogik) (eq device :hand))
+          (unless dry-run
             (send self :angle-command-vector control-arm :torso nil))
           (if (> (send self :get-arm-val :larm :grasp) gripper-threshold) ;; TODO
               (send self :start-grasp :larm :wait nil)
