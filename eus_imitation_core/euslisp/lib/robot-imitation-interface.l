@@ -162,7 +162,7 @@
       ((eq arm :larm) :rarm)
       ((eq arm :rarm) :larm)
       (t nil)))
-  (:update-robot-model ()
+  (:update-robot-from-real ()
     (send robot :angle-vector (send robot-interface :state :potentio-vector)))
   (:update-current-end-coords ()
         (if (send robot :larm)
@@ -197,7 +197,7 @@
                     (send robot :rarm :angle-vector))))
   (:update-robot ()
     (unless dry-run
-      (send self :update-robot-model))
+      (send self :update-robot-from-real))
     (send self :update-current-end-coords)
     (send self :update-current-gripper-pos)
     (send self :update-current-joint-state)
