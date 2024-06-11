@@ -15,7 +15,7 @@
           robot-state-topic-name
           robot-larm-state-topic-name
           robot-rarm-state-topic-name
-          robot-joint-states-topic-name
+          robot-target-joint-state-topic-name
           record-trigger-service-name
           remove-trigger-service-name
           larm-gripper-status-topic-name
@@ -94,7 +94,7 @@
    (send self :set-val 'robot-state-topic-name "/eus_imitation/robot_state")
    (send self :set-val 'robot-larm-state-topic-name "/eus_imitation/l_arm_state")
    (send self :set-val 'robot-rarm-state-topic-name "/eus_imitation/r_arm_state")
-   (send self :set-val 'robot-joint-states-topic-name "/joint_states")
+   (send self :set-val 'robot-target-joint-state-topic-name "/target_joint_states")
    (send self :set-val 'record-trigger-service-name "/eus_imitation/rosbag_record_trigger")
    (send self :set-val 'remove-trigger-service-name "/eus_imitation/rosbag_remove_trigger")
    (send self :reset)
@@ -104,6 +104,7 @@
     (ros::advertise robot-state-topic-name eus_imitation_msgs::FloatVector 1)
     (ros::advertise robot-larm-state-topic-name eus_imitation_msgs::FloatVector 1)
     (ros::advertise robot-rarm-state-topic-name eus_imitation_msgs::FloatVector 1)
+    (ros::advertise robot-target-joint-state-topic-name sensor_msgs::JointState 1)
     (unless imitation-mode
       (ros::advertise robot-action-topic-name eus_imitation_msgs::FloatVector 1))
     t)
@@ -201,11 +202,6 @@
     (send self :update-current-gripper-pos)
     (send self :update-current-joint-state)
     (send self :update-robot-state)) ;; update robot state for IL or RL, defined by user
-  (:update-robot-state () ;; this should be defined by user, as an abstract method. here is an example.
-      (let (end-effector-pos joint-state gripper-pos)
-        (setq end-effector-pos (send (send (send self :get-arm-val :rarm :current-end-coords) :copy-worldcoords) :worldpos))
-        (setq gripper-pos (float-vector (send self :get-arm-val :rarm :gripper-pos)))
-        (send self :set-val 'robot-state (concatenate float-vector end-effector-pos gripper-pos))))
   (:publish-robot-state ()
     (let ((robot-state-msg (instance eus_imitation_msgs::FloatVector :init))
           (robot-larm-state-msg (instance eus_imitation_msgs::FloatVector :init))
@@ -224,10 +220,20 @@
               (send robot-rarm-state-msg :header :stamp (ros::time-now))
               (ros::publish robot-rarm-state-topic-name robot-rarm-state-msg)))))
   (:publish-robot-action ()
-    (let ((robot-action-msg (instance eus_imitation_msgs::FloatVector :init)))
+    (let ((robot-action-msg (instance eus_imitation_msgs::FloatVector :init))
+          (target-joint-state-msg (instance sensor_msgs::JointState :init))
+          (target-joint-state-list (send robot :joint-list)))
       (send robot-action-msg :data robot-action)
       (send robot-action-msg :header :stamp (ros::time-now))
-      (ros::publish robot-action-topic-name robot-action-msg)))
+      (send target-joint-state-msg :name (mapcar #'(lambda (joint) (send joint :name)) target-joint-state-list))
+      (send target-joint-state-msg :position (mapcar #'(lambda (joint)
+                                                 (if (derivedp joint linear-joint)
+                                                     (/ (send joint :joint-angle) 1000.0)
+                                                     (deg2rad (send joint :joint-angle))))
+                                             target-joint-state-list))
+      (send target-joint-state-msg :header :stamp (ros::time-now))
+      (ros::publish robot-action-topic-name robot-action-msg)
+      (ros::publish robot-target-joint-state-topic-name target-joint-state-msg)))
   (:inverse-kinematics (arm &rest args)
     (if (eq arm :arms)
       (send* robot :inverse-kinematics (list (send self :get-arm-val :larm :target-coords)
