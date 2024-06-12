@@ -26,7 +26,7 @@ def main(args):
     config = FileUtils.get_config_from_project_name(args.project_name)
     if args.rosbag_dir is None:
         args.rosbag_dir = os.path.join(
-            FileUtils.get_data_folder(args.project_name), "rosbags"
+            FileUtils.get_data_dir(args.project_name), "rosbags"
         )
     rosbags = RosUtils.get_rosbag_abs_paths(args.rosbag_dir)
     print("Found {} rosbags".format(len(rosbags)))
@@ -98,7 +98,7 @@ def main(args):
     ts.registerCallback(callback)
 
     # create directory if not exist
-    output_dir = FileUtils.get_data_folder(args.project_name)
+    output_dir = FileUtils.get_data_dir(args.project_name)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -246,7 +246,7 @@ def main(args):
     normalize_cfg = OmegaConf.create(normalize_data)
     OmegaConf.save(
         normalize_cfg,
-        os.path.join(FileUtils.get_config_folder(args.project_name), "normalize.yaml"),
+        os.path.join(FileUtils.get_config_dir(args.project_name), "normalize.yaml"),
     )
 
     hdf5_file.close()
