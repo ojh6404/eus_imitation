@@ -1,41 +1,31 @@
 import datetime
-from functools import partial
 import imp
 import os
+from functools import partial
 
-from absl import app, flags, logging
 import flax
-from flax.traverse_util import flatten_dict
 import jax
-from jax.sharding import Mesh, NamedSharding, PartitionSpec
-from ml_collections import config_flags, ConfigDict
 import optax
 import tensorflow as tf
 import tqdm
 import wandb
-
+from absl import app, flags, logging
+from flax.traverse_util import flatten_dict
+from imitator.utils.file_utils import (get_config_from_project_name,
+                                       get_models_folder)
+from jax.sharding import Mesh, NamedSharding, PartitionSpec
+from ml_collections import ConfigDict, config_flags
 from octo.data.dataset import make_single_dataset
+from octo.model.components.action_heads import L1ActionHead
 from octo.model.octo_model import OctoModel
 from octo.utils.jax_utils import initialize_compilation_cache
-from octo.model.components.action_heads import L1ActionHead
 from octo.utils.spec import ModuleSpec
-from octo.utils.train_callbacks import (
-    RolloutVisualizationCallback,
-    SaveCallback,
-    ValidationCallback,
-    VisualizationCallback,
-)
-from octo.utils.train_utils import (
-    check_config_diff,
-    create_optimizer,
-    format_name_with_config,
-    merge_params,
-    process_text,
-    Timer,
-    TrainState,
-)
-
-from imitator.utils.file_utils import get_models_folder, get_config_from_project_name
+from octo.utils.train_callbacks import (RolloutVisualizationCallback,
+                                        SaveCallback, ValidationCallback,
+                                        VisualizationCallback)
+from octo.utils.train_utils import (Timer, TrainState, check_config_diff,
+                                    create_optimizer, format_name_with_config,
+                                    merge_params, process_text)
 
 try:
     from jax_smi import initialise_tracking  # type: ignore

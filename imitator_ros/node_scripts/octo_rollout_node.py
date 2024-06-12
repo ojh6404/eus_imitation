@@ -1,35 +1,27 @@
 #!/usr/bin/env python
 #-*- coding: utf-8 -*-
 
-import os
 import argparse
+import os
 from typing import Any, Dict
 
-import numpy as np
 import cv2
 import jax
+import numpy as np
+import rospy
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
-import rospy
 from eus_imitation_msgs.msg import FloatVector
 from eus_imitation_utils.ros_gym_wrapper import ROSRobotEnv
-
+from imitator.utils.env.gym_wrapper import (HistoryWrapper, NormalizeProprio,
+                                            ProcessObsWrapper,
+                                            ResizeImageWrapper,
+                                            TemporalEnsembleWrapper,
+                                            UnnormalizeAction)
+from imitator.utils.file_utils import (get_config_from_project_name,
+                                       get_models_folder)
 from octo.model.octo_model import OctoModel
 from octo.utils.jax_utils import initialize_compilation_cache
-from imitator.utils.env.gym_wrapper import (
-    HistoryWrapper,
-    TemporalEnsembleWrapper,
-    ResizeImageWrapper,
-    ProcessObsWrapper,
-    NormalizeProprio,
-    UnnormalizeAction,
-)
-from imitator.utils.file_utils import (
-    get_models_folder,
-    get_config_from_project_name,
-)
-
 
 initialize_compilation_cache()
 # prevent tensorflow from using GPU memory since it's only used for data loading

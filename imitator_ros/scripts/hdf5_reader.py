@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
-import h5py
-import numpy as np
 import argparse
-from PIL import Image
-import matplotlib.pyplot as plt
 
+import h5py
+import matplotlib.pyplot as plt
+import numpy as np
 from imitator.utils.file_utils import sort_names_by_number
+from PIL import Image
+
 
 def main(args):
     f = h5py.File(args.dataset, "r")

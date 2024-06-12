@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import numpy as np
-import rospy
-import rospkg
-
 import os
-import yaml
+
+import numpy as np
+import rospkg
+import rospy
 import tf
-from speech_recognition_msgs.msg import SpeechRecognitionCandidates
+import yaml
 from sound_play.libsoundplay import SoundClient
+from speech_recognition_msgs.msg import SpeechRecognitionCandidates
 
 
 class CalibrationNode(object):

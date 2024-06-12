@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
 import os
-from typing import Iterator, Tuple, Any
+from typing import Any, Iterator, Tuple
+
+import h5py
 import numpy as np
 import tensorflow_datasets as tfds
-import h5py
-from imitator.utils.file_utils import get_config_from_project_name, get_data_hdf5, extract_number
+from imitator.utils.file_utils import (extract_number,
+                                       get_config_from_project_name,
+                                       get_data_hdf5)
 
 project_name = os.environ.get("PROJECT_NAME", "imitator")
 dataset = os.environ.get("DATASET", "dataset.hdf5")

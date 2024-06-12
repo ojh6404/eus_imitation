@@ -1,8 +1,9 @@
 import os
 import time
-import rospy
 
+import rospy
 from imitator.utils.file_utils import sort_names_by_number
+
 
 class PatchTimer(rospy.Time):
     # PatchTimer Time.now so we don't need to call rospy.init_node (so we don't need a roscore)

@@ -3,14 +3,9 @@
 
 import rospy
 import tf
-from tf.transformations import (
-    quaternion_from_euler,
-    translation_matrix,
-    quaternion_matrix,
-    concatenate_matrices,
-    translation_from_matrix,
-    quaternion_from_matrix,
-)
+from tf.transformations import (concatenate_matrices, quaternion_from_euler,
+                                quaternion_from_matrix, quaternion_matrix,
+                                translation_from_matrix, translation_matrix)
 
 
 class HandFrameCalibrationNode(object):

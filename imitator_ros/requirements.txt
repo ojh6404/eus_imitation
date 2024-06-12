@@ -1,4 +1,4 @@
-numpy>=1.24.3
+numpy
 opencv-python
 pyyaml
 h5py
@@ -9,3 +9,4 @@ typing-extensions
 tunable-filter
 omegaconf
 gymnasium
+imitator@git+https://github.com/ojh6404/imitator.git

@@ -1,9 +1,6 @@
 numpy
 opencv-python
 scipy
-pyquaternion
-opencv-python
-h5py
 psutil
 tqdm
 matplotlib

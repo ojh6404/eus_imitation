@@ -1,6 +1,7 @@
+import os
+
 from ml_collections import ConfigDict
 from ml_collections.config_dict import FieldReference, placeholder
-import os
 
 
 def get_config(config_string="full,multimodal"):

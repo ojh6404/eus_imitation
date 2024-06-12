@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 
+import argparse
 import os
 import time
-import argparse
-from omegaconf import OmegaConf
+
 import cv2
-from tqdm import tqdm
-import numpy as np
-import h5py
-from moviepy.editor import ImageSequenceClip
-
-import rospy
-import rosbag
-import message_filters
-from cv_bridge import CvBridge
-from sensor_msgs.msg import CompressedImage, Image, JointState
-from eus_imitation_msgs.msg import FloatVector
-
 import eus_imitation_utils.ros_utils as RosUtils
+import h5py
 import imitator.utils.file_utils as FileUtils
-
+import message_filters
+import numpy as np
+import rosbag
+import rospy
+from cv_bridge import CvBridge
+from eus_imitation_msgs.msg import FloatVector
+from moviepy.editor import ImageSequenceClip
+from omegaconf import OmegaConf
+from sensor_msgs.msg import CompressedImage, Image, JointState
+from tqdm import tqdm
 
 # for no roscore
 rospy.Time = RosUtils.PatchTimer

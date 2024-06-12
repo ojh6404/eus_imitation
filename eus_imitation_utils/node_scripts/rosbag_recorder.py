@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 
+import os
+import signal
 import subprocess
+import sys
 import threading
 import time
-import signal
-import os
-import sys
-
-import rospy
-from std_srvs.srv import Trigger, TriggerResponse
-from sound_play.libsoundplay import SoundClient
 
 import eus_imitation_utils.ros_utils as RosUtils
 import imitator.utils.file_utils as FileUtils
+import rospy
+from sound_play.libsoundplay import SoundClient
+from std_srvs.srv import Trigger, TriggerResponse
+
 
 class RosbagRecorderNode(object):
     def __init__(self, project_name):
@@ -22,7 +22,7 @@ class RosbagRecorderNode(object):
         except:
             raise FileNotFoundError("config.yaml not found")
         self.record_dir = os.path.join(
-            FileUtils.get_data_folder(self.project_name), "rosbags"
+            FileUtils.get_data_dir(self.project_name), "rosbags"
         )
         rospy.loginfo("Record directory : {}".format(self.record_dir))
 

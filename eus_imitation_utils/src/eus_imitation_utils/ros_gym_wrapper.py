@@ -1,16 +1,13 @@
-from typing import Dict, Any
-from functools import partial
-
-import numpy as np
-import gymnasium as gym
-
 from copy import deepcopy
+from functools import partial
+from typing import Any, Dict
 
+import gymnasium as gym
+import numpy as np
 import rospy
 from cv_bridge import CvBridge
-
-from sensor_msgs.msg import Image, CompressedImage, JointState
 from eus_imitation_msgs.msg import FloatVector
+from sensor_msgs.msg import CompressedImage, Image, JointState
 
 
 class ROSRobotEnv(gym.Env):
