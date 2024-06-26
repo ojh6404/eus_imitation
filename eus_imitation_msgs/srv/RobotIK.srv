@@ -1,0 +1,7 @@
+# Request
+sensor_msgs/JointState current_joint_states
+std_msgs/String[]       move_end_coords
+geometry_msgs/Pose[]    target_coords
+---
+# Response
+sensor_msgs/JointState target_joint_states

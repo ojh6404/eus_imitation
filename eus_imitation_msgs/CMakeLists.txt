@@ -13,14 +13,16 @@ add_message_files(
   FloatVector.msg
 )
 
-# add_service_files(
-#     FILES
-# )
+add_service_files(
+    FILES
+    RobotIK.srv
+)
 
 generate_messages(
   DEPENDENCIES
   std_msgs
   sensor_msgs
+  geometry_msgs
   jsk_recognition_msgs
 )
 
