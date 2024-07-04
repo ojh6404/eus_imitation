@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import time
-
+import os
 import cv2
-import eus_imitation_utils.ros_utils as RosUtils
 import h5py
-import imitator.utils.file_utils as FileUtils
-import message_filters
 import numpy as np
-import rosbag
-import rospy
-from cv_bridge import CvBridge
-from eus_imitation_msgs.msg import FloatVector
+from tqdm import tqdm
 from moviepy.editor import ImageSequenceClip
 from omegaconf import OmegaConf
+
+import rospy
+import rosbag
+import message_filters
+from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image, JointState
-from tqdm import tqdm
+from eus_imitation_msgs.msg import FloatVector
+import eus_imitation_utils.ros_utils as RosUtils
+
+import imitator.utils.file_utils as FileUtils
 
 # for no roscore
 rospy.Time = RosUtils.PatchTimer
@@ -46,6 +47,8 @@ def main(args):
     topics = obs_topics + [action_topic]
     msg_types = obs_msg_types + [action_msg_type]
 
+    print("Observation and Action keys: {}".format(obs_keys + ["action"]))
+    print("Subscribing to topics: {}".format(topics))
 
     primary_image_key = None
     for obs_key in obs_keys:
@@ -53,50 +56,8 @@ def main(args):
             primary_image_key = obs_key
             break
 
-    subscribers = dict()
-    for topic, msg_type in zip(topics, msg_types):
-        subscribers[topic] = message_filters.Subscriber(topic, msg_type)
 
     img_bridge = CvBridge()
-    ts = message_filters.ApproximateTimeSynchronizer(
-        subscribers.values(),
-        queue_size=mf_cfg.queue_size,
-        slop=mf_cfg.slop,
-        allow_headerless=False,
-    )
-
-    print("Observation and Action keys: {}".format(obs_keys + ["action"]))
-    print("Subscribing to topics: {}".format(topics))
-
-    def callback(*msgs):
-        for topic, msg in zip(topics, msgs):
-            if topic == action_topic:  # action
-                data = np.array(msg.data).astype(np.float32)
-                action_buf.append(data)
-            else:
-                if "Image" in msg._type:
-                    if "Compressed" in msg._type:
-                        data = img_bridge.compressed_imgmsg_to_cv2(msg, "rgb8").astype(
-                            np.uint8
-                        )
-                    else:
-                        data = img_bridge.imgmsg_to_cv2(msg, "rgb8").astype(np.uint8)
-                    data = cv2.resize(
-                        data, tuple(obs_cfg[topics_to_keys[topic]].dim[:2]), interpolation=cv2.INTER_LANCZOS4
-                    )
-                elif "JointState" in msg._type:
-                    data = np.array(
-                        [
-                            msg.position[msg.name.index(joint)]
-                            for joint in obs_cfg[topics_to_keys[topic]].joints
-                        ]
-                    ).astype(np.float32)
-                else:
-                    data = np.array(msg.data).astype(np.float32)
-                obs_buf[topics_to_keys[topic]].append(data)
-
-    ts.registerCallback(callback)
-
     # create directory if not exist
     output_dir = FileUtils.get_data_dir(args.project_name)
     if not os.path.exists(output_dir):
@@ -124,23 +85,65 @@ def main(args):
 
     print("Processing rosbags...")
     for i, bag in enumerate(tqdm(rosbags)):
+        # initialize obs and action buffer
         obs_buf = dict()  # {obs_key: [obs_data]}, obs_data is numpy array
         action_buf = []  # [action_data], action_data is numpy array
         for obs_key in obs_keys:
             obs_buf[obs_key] = []
 
+        # callback function for message filters
+        def callback(*msgs):
+            for topic, msg in zip(topics, msgs):
+                if topic == action_topic:  # action
+                    data = np.array(msg.data).astype(np.float32)
+                    action_buf.append(data)
+                else:
+                    if "Image" in msg._type:
+                        if "Compressed" in msg._type:
+                            data = img_bridge.compressed_imgmsg_to_cv2(msg, "rgb8").astype(
+                                np.uint8
+                            )
+                        else:
+                            data = img_bridge.imgmsg_to_cv2(msg, "rgb8").astype(np.uint8)
+                        data = cv2.resize(
+                            data, tuple(obs_cfg[topics_to_keys[topic]].dim[:2]), interpolation=cv2.INTER_LANCZOS4
+                        )
+                    elif "JointState" in msg._type:
+                        data = np.array(
+                            [
+                                msg.position[msg.name.index(joint)]
+                                for joint in obs_cfg[topics_to_keys[topic]].joints
+                            ]
+                        ).astype(np.float32)
+                    else:
+                        data = np.array(msg.data).astype(np.float32)
+                    obs_buf[topics_to_keys[topic]].append(data)
+
+        # message filter
+        subscribers = dict()
+        for topic, msg_type in zip(topics, msg_types):
+            subscribers[topic] = message_filters.Subscriber(topic, msg_type)
+        ts = message_filters.ApproximateTimeSynchronizer(
+            subscribers.values(),
+            queue_size=mf_cfg.queue_size,
+            slop=mf_cfg.slop,
+            allow_headerless=False,
+        )
+        ts.registerCallback(callback)
+
+        # create demo group
         demo = demo_group.create_group("demo_{}".format(i))
         bag_reader = rosbag.Bag(bag, skip_index=True)
 
         # get action and obs buffer
-        for message_idx, (topic, msg, t) in enumerate(
+        for _, (topic, msg, t) in enumerate(
             bag_reader.read_messages(topics=topics)
         ):
             subscriber = subscribers.get(topic)
             if subscriber:
                 subscriber.signalMessage(msg)
 
-        # action
+        # process action buffer
         if config.actions.type == "action_trajectory":
             action_data = np.array(action_buf)
         elif config.actions.type == "proprio_trajectory":
@@ -152,6 +155,7 @@ def main(args):
         else:
             raise NotImplementedError
 
+        # write action data to hdf5
         demo.create_dataset(
             "actions",
             data=action_data,
@@ -164,7 +168,7 @@ def main(args):
             action_min = np.minimum(action_min, np.min(action_data, axis=0))
             action_max = np.maximum(action_max, np.max(action_data, axis=0))
 
-        # obs
+        # process obs buffer
         for obs_key, obs_data in obs_buf.items():
             obs_data = np.array(obs_data)
             next_obs_data = np.concatenate(
@@ -180,7 +184,6 @@ def main(args):
                 data=next_obs_data,
                 dtype=next_obs_data.dtype,
             )
-
             if obs_key in obs_max_buf.keys():
                 if obs_max_buf[obs_key] is None:
                     obs_max_buf[obs_key] = np.max(obs_data, axis=0)
@@ -193,12 +196,14 @@ def main(args):
                         obs_min_buf[obs_key], np.min(obs_data, axis=0)
                     )
 
+        # check if obs and action data have same length
         assert len(obs_data) == len(
             action_data
-        )  # obs_data and action_data should have same length
+        )
         demo.attrs["num_samples"] = len(action_data)
         hdf5_file.flush()
 
+        # save gif to visualize data
         os.makedirs(os.path.join(output_dir, "gif"), exist_ok=True)
         if i % 5 == 0 and args.gif and primary_image_key is not None:
             clip = ImageSequenceClip(obs_buf[primary_image_key], fps=config.ros.rate)
